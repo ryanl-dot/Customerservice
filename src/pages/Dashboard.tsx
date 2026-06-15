@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import {
-  FolderOpen, Calendar, AlertCircle, Truck, RefreshCw, Clock, Zap, BarChart2,
-  TrendingUp, ArrowRight, ClipboardCheck, Users, ShieldAlert, Activity,
-  CheckCircle2, AlertTriangle,
+  FolderOpen, Calendar, AlertCircle, Truck, RefreshCw, Clock,
+  Zap, BarChart2, TrendingUp, ArrowRight, ClipboardCheck,
+  Users, ShieldAlert, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
 import { PriorityBadge, StatusBadge, RiskBadge } from '../components/Badge';
@@ -15,155 +15,162 @@ export default function Dashboard() {
   const openCases = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
   const summary = buildDailySummary(cases, truckRolls);
 
-  const totalDays = openCases.reduce((sum, c) => sum + daysOpen(c), 0);
-  const avgDaysOpen = openCases.length ? Math.round(totalDays / openCases.length) : 0;
+  const avgDays = openCases.length
+    ? Math.round(openCases.reduce((s, c) => s + daysOpen(c), 0) / openCases.length)
+    : 0;
 
-  const metrics = [
-    { label: 'Open Cases', value: summary.totalOpen, icon: FolderOpen, color: 'bg-blue-500', link: '/cases' },
-    { label: 'Due Today', value: summary.dueToday, icon: Calendar, color: 'bg-amber-500', link: '/follow-up' },
-    { label: 'Overdue Follow-Ups', value: summary.overdueCases, icon: AlertCircle, color: 'bg-red-500', link: '/follow-up' },
-    { label: 'Truck Rolls Scheduled', value: truckRolls.filter(t => t.status === 'Scheduled').length, icon: Truck, color: 'bg-indigo-500', link: '/truck-roll' },
-    { label: 'Revisit Required', value: openCases.filter(c => c.status === 'Revisit Required').length, icon: RefreshCw, color: 'bg-orange-500', link: '/truck-roll' },
-    { label: 'Waiting on Internal', value: summary.escalationsOpen > 0 ? openCases.filter(c => c.status === 'Waiting on Internal Team').length : 0, icon: Clock, color: 'bg-yellow-500', link: '/internal-waiting' },
-    { label: 'High Priority Cases', value: openCases.filter(c => c.priority === 'High' || c.priority === 'Urgent').length, icon: Zap, color: 'bg-red-600', link: '/cases' },
-    { label: 'Avg Days Open', value: avgDaysOpen, icon: BarChart2, color: 'bg-teal-500', link: '/cases' },
+  const topMetrics = [
+    { label: 'Open Cases',          value: summary.totalOpen,                 icon: FolderOpen,      color: 'text-blue-600',    bg: 'bg-blue-50',    link: '/cases' },
+    { label: 'Due Today',            value: summary.dueToday,                  icon: Calendar,        color: 'text-amber-600',   bg: 'bg-amber-50',   link: '/follow-up' },
+    { label: 'Overdue',              value: summary.overdueCases,              icon: AlertCircle,     color: 'text-red-600',     bg: 'bg-red-50',     link: '/follow-up' },
+    { label: 'Truck Rolls Scheduled',value: truckRolls.filter(t => t.status === 'Scheduled').length, icon: Truck, color: 'text-indigo-600', bg: 'bg-indigo-50', link: '/truck-roll' },
+    { label: 'Revisit Required',     value: openCases.filter(c => c.status === 'Revisit Required').length, icon: RefreshCw, color: 'text-orange-600', bg: 'bg-orange-50', link: '/truck-roll' },
+    { label: 'Waiting on Internal',  value: openCases.filter(c => c.status === 'Waiting on Internal Team').length, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50', link: '/internal-waiting' },
+    { label: 'High Priority',        value: openCases.filter(c => c.priority === 'High' || c.priority === 'Urgent').length, icon: Zap, color: 'text-red-600', bg: 'bg-red-50', link: '/cases' },
+    { label: 'Avg Days Open',        value: avgDays,                           icon: BarChart2,       color: 'text-teal-600',    bg: 'bg-teal-50',    link: '/cases' },
   ];
 
-  // Recompute waiting on internal correctly
-  metrics[5].value = openCases.filter(c => c.status === 'Waiting on Internal Team').length;
+  const rankedByRisk = openCases
+    .map(c => ({ c, risk: computeRisk(c, truckRolls.find(t => t.id === c.truckRollId)) }))
+    .sort((a, b) => b.risk.score - a.risk.score)
+    .slice(0, 6);
 
   const recentCases = [...openCases]
     .sort((a, b) => new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime())
-    .slice(0, 5);
+    .slice(0, 6);
 
-  // Risk-scored top cases
-  const rankedByRisk = openCases
-    .map(c => {
-      const tr = truckRolls.find(t => t.id === c.truckRollId);
-      return { c, risk: computeRisk(c, tr) };
-    })
-    .sort((a, b) => b.risk.score - a.risk.score)
-    .slice(0, 5);
+  const dueTodayCases = cases.filter(isDueToday);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Command Center Dashboard</h1>
-        <p className="text-slate-500 text-sm mt-1">Monday, June 15, 2026 — Good morning, Sarah</p>
+    <div className="space-y-5 max-w-[1400px]">
+
+      {/* Page title */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">Dashboard</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Monday, June 15, 2026</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {summary.criticalRisk > 0 && (
+            <Link to="/escalation" className="flex items-center gap-1.5 text-xs bg-red-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-red-700 transition-colors">
+              <AlertTriangle size={12} />
+              {summary.criticalRisk} Critical
+            </Link>
+          )}
+          {summary.escalationsOpen > 0 && (
+            <Link to="/escalation" className="flex items-center gap-1.5 text-xs bg-orange-500 text-white px-3 py-1.5 rounded-md font-medium hover:bg-orange-600 transition-colors">
+              <ShieldAlert size={12} />
+              {summary.escalationsOpen} Escalations
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {metrics.map(({ label, value, icon: Icon, color, link }) => (
-          <Link key={label} to={link} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-            <div className={`${color} w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0`}>
-              <Icon size={22} className="text-white" />
+      {/* ── Metric cards ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 xl:grid-cols-8 gap-3">
+        {topMetrics.map(({ label, value, icon: Icon, color, bg, link }) => (
+          <Link
+            key={label}
+            to={link}
+            className="bg-white border border-slate-200 rounded-lg p-3 hover:border-slate-300 hover:shadow-sm transition-all group"
+          >
+            <div className={`w-8 h-8 ${bg} rounded-md flex items-center justify-center mb-2`}>
+              <Icon size={15} className={color} />
             </div>
-            <div>
-              <div className="text-2xl font-bold text-slate-800">{value}</div>
-              <div className="text-xs text-slate-500 leading-tight">{label}</div>
+            <div className={`text-xl font-bold ${value > 0 && (label === 'Overdue' || label === 'High Priority') ? 'text-red-600' : 'text-slate-800'}`}>
+              {value}
             </div>
+            <div className="text-[11px] text-slate-500 leading-tight mt-0.5">{label}</div>
           </Link>
         ))}
       </div>
 
-      {/* ── Daily CS Summary ─────────────────────────────────────────────── */}
-      <div className="bg-slate-900 rounded-xl border border-slate-700 overflow-hidden">
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-700">
-          <Activity size={16} className="text-amber-400" />
-          <h2 className="font-bold text-white text-sm tracking-wide uppercase">Daily CS Summary — June 15, 2026</h2>
-          <span className="ml-auto text-xs text-slate-400">Auto-calculated · Refreshes on load</span>
+      {/* ── Daily CS Summary ───────────────────────────────────────────── */}
+      <div className="bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Daily CS Summary</span>
+          <span className="ml-auto text-[10px] text-slate-600">Jun 15, 2026 · Auto-calculated</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-y divide-slate-700 md:divide-y-0">
+        <div className="grid grid-cols-4 xl:grid-cols-8">
           {[
-            { label: 'Total Open Cases', value: summary.totalOpen, icon: FolderOpen, alert: false },
-            { label: 'Overdue Cases', value: summary.overdueCases, icon: AlertCircle, alert: summary.overdueCases > 0 },
-            { label: 'Due Today', value: summary.dueToday, icon: Calendar, alert: summary.dueToday > 0 },
-            { label: 'Truck Rolls Today', value: summary.truckRollsToday, icon: Truck, alert: false },
-            { label: 'Missing TR Outcomes', value: summary.missingTruckRollOutcomes, icon: ClipboardCheck, alert: summary.missingTruckRollOutcomes > 0 },
-            { label: 'Customers Need Update', value: summary.customersNeedingUpdate, icon: Users, alert: summary.customersNeedingUpdate > 0 },
-            { label: 'Open Escalations', value: summary.escalationsOpen, icon: ShieldAlert, alert: summary.escalationsOpen > 0 },
-            { label: 'Critical Risk Cases', value: summary.criticalRisk, icon: AlertTriangle, alert: summary.criticalRisk > 0 },
+            { label: 'Open Cases',         value: summary.totalOpen,                  icon: FolderOpen,      alert: false },
+            { label: 'Overdue',            value: summary.overdueCases,               icon: AlertCircle,     alert: summary.overdueCases > 0 },
+            { label: 'Due Today',          value: summary.dueToday,                   icon: Calendar,        alert: summary.dueToday > 0 },
+            { label: 'TR Today',           value: summary.truckRollsToday,            icon: Truck,           alert: false },
+            { label: 'Missing Outcomes',   value: summary.missingTruckRollOutcomes,   icon: ClipboardCheck,  alert: summary.missingTruckRollOutcomes > 0 },
+            { label: 'Need Cust. Update',  value: summary.customersNeedingUpdate,     icon: Users,           alert: summary.customersNeedingUpdate > 0 },
+            { label: 'Escalations',        value: summary.escalationsOpen,            icon: ShieldAlert,     alert: summary.escalationsOpen > 0 },
+            { label: 'Critical Risk',      value: summary.criticalRisk,               icon: AlertTriangle,   alert: summary.criticalRisk > 0 },
           ].map(({ label, value, icon: Icon, alert }) => (
-            <div key={label} className="flex items-center gap-3 px-5 py-4">
-              <Icon size={18} className={alert && value > 0 ? 'text-red-400' : 'text-slate-500'} />
+            <div key={label} className="flex items-center gap-2.5 px-4 py-3 border-r border-slate-800 last:border-r-0">
+              <Icon size={14} className={alert && value > 0 ? 'text-red-400' : 'text-slate-600'} />
               <div>
-                <div className={`text-xl font-bold ${alert && value > 0 ? 'text-red-400' : 'text-white'}`}>{value}</div>
-                <div className="text-xs text-slate-400 leading-tight">{label}</div>
+                <div className={`text-lg font-bold leading-none ${alert && value > 0 ? 'text-red-400' : 'text-white'}`}>{value}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">{label}</div>
               </div>
             </div>
           ))}
         </div>
         {/* Narrative */}
-        <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/50">
-          <p className="text-sm text-slate-300 leading-relaxed">
-            {summary.criticalRisk > 0 && (
-              <span className="text-red-400 font-semibold">🔴 {summary.criticalRisk} critical-risk case{summary.criticalRisk > 1 ? 's' : ''} require immediate attention. </span>
-            )}
-            {summary.overdueCases > 0 && (
-              <span className="text-orange-400">⚠ {summary.overdueCases} case{summary.overdueCases > 1 ? 's' : ''} are overdue for follow-up. </span>
-            )}
-            {summary.missingTruckRollOutcomes > 0 && (
-              <span className="text-yellow-400">📋 {summary.missingTruckRollOutcomes} truck roll outcome{summary.missingTruckRollOutcomes > 1 ? 's' : ''} not filed. </span>
-            )}
-            {summary.customersNeedingUpdate > 0 && (
-              <span className="text-yellow-400">👤 {summary.customersNeedingUpdate} customer{summary.customersNeedingUpdate > 1 ? 's' : ''} not updated after truck roll. </span>
-            )}
-            {summary.truckRollsToday > 0 && (
-              <span className="text-blue-400">🚚 {summary.truckRollsToday} truck roll{summary.truckRollsToday > 1 ? 's' : ''} scheduled today. </span>
-            )}
-            {summary.escalationsOpen > 0 && (
-              <span className="text-red-400">🚨 {summary.escalationsOpen} active escalation{summary.escalationsOpen > 1 ? 's' : ''} — legal/management review needed.</span>
-            )}
-          </p>
-        </div>
+        {(summary.overdueCases > 0 || summary.criticalRisk > 0 || summary.missingTruckRollOutcomes > 0 || summary.customersNeedingUpdate > 0) && (
+          <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/30">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              {summary.criticalRisk > 0 && <span className="text-red-400 font-medium">🔴 {summary.criticalRisk} critical-risk case{summary.criticalRisk > 1 ? 's' : ''} need immediate attention. </span>}
+              {summary.overdueCases > 0 && <span className="text-orange-400">⚠ {summary.overdueCases} overdue follow-up{summary.overdueCases > 1 ? 's' : ''}. </span>}
+              {summary.missingTruckRollOutcomes > 0 && <span className="text-yellow-400">📋 {summary.missingTruckRollOutcomes} truck roll outcome{summary.missingTruckRollOutcomes > 1 ? 's' : ''} not filed. </span>}
+              {summary.customersNeedingUpdate > 0 && <span className="text-yellow-400">👤 {summary.customersNeedingUpdate} customer{summary.customersNeedingUpdate > 1 ? 's' : ''} not updated after truck roll.</span>}
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Two-column section ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
         {/* Risk-ranked cases */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <ShieldAlert size={16} className="text-red-500" />
-              <h2 className="font-semibold text-slate-800 text-sm">Cases by Risk Score</h2>
+              <ShieldAlert size={14} className="text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">Cases by Risk Score</span>
             </div>
-            <Link to="/cases" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-              All cases <ArrowRight size={12} />
-            </Link>
+            <Link to="/cases" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">All <ArrowRight size={11} /></Link>
           </div>
           <div className="divide-y divide-slate-50">
             {rankedByRisk.map(({ c, risk }) => (
-              <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+              <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm text-slate-800 truncate">{c.customerName}</div>
-                  <div className="text-xs text-slate-500">{c.id} · {c.caseType}</div>
+                  <div className="text-sm font-medium text-slate-800 truncate">{c.customerName}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">{c.id} · {c.caseType}</div>
                 </div>
-                <RiskBadge level={risk.level} score={risk.score} />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <PriorityBadge priority={c.priority} />
+                  <RiskBadge level={risk.level} score={risk.score} />
+                </div>
               </Link>
             ))}
           </div>
         </div>
 
-        {/* Recent Activity */}
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        {/* Recent activity */}
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <TrendingUp size={16} className="text-slate-500" />
-              <h2 className="font-semibold text-slate-800 text-sm">Recent Case Activity</h2>
+              <TrendingUp size={14} className="text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">Recent Activity</span>
             </div>
-            <Link to="/cases" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-              View all <ArrowRight size={12} />
-            </Link>
+            <Link to="/cases" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">All <ArrowRight size={11} /></Link>
           </div>
           <div className="divide-y divide-slate-50">
             {recentCases.map(c => {
-              const sinceUpdate = daysSinceLastUpdate(c);
+              const since = daysSinceLastUpdate(c);
               return (
-                <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                <Link key={c.id} to={`/cases/${c.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm text-slate-800 truncate">{c.customerName}</div>
-                    <div className="text-xs text-slate-500">
-                      {c.caseType} · Updated {sinceUpdate === 0 ? 'today' : `${sinceUpdate}d ago`}
+                    <div className="text-sm font-medium text-slate-800 truncate">{c.customerName}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      {c.caseType} · {since === 0 ? 'Updated today' : `${since}d ago`}
                     </div>
                   </div>
                   <StatusBadge status={c.status} />
@@ -174,50 +181,51 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Due Today */}
-      <div className="bg-white rounded-xl border border-slate-200">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      {/* ── Due Today ──────────────────────────────────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-amber-500" />
-            <h2 className="font-semibold text-slate-800 text-sm">
-              Due Today — {summary.dueToday} Follow-Up{summary.dueToday !== 1 ? 's' : ''}
-            </h2>
+            <Calendar size={14} className="text-amber-500" />
+            <span className="text-sm font-semibold text-slate-700">
+              Due Today
+              {summary.dueToday > 0
+                ? <span className="ml-2 text-xs font-normal text-amber-600 bg-amber-50 ring-1 ring-amber-200 px-1.5 py-0.5 rounded-md">{summary.dueToday} case{summary.dueToday > 1 ? 's' : ''}</span>
+                : null}
+            </span>
           </div>
-          <Link to="/follow-up" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-            Follow-Up Center <ArrowRight size={12} />
-          </Link>
+          <Link to="/follow-up" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">Follow-Up Center <ArrowRight size={11} /></Link>
         </div>
-        {summary.dueToday === 0 ? (
-          <div className="flex items-center gap-3 px-5 py-6 text-sm text-green-600">
-            <CheckCircle2 size={16} />
-            No follow-ups due today.
+
+        {dueTodayCases.length === 0 ? (
+          <div className="flex items-center gap-2 px-4 py-4 text-sm text-emerald-600">
+            <CheckCircle2 size={15} />
+            All caught up — no follow-ups due today.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs table-sticky">
               <thead>
-                <tr className="bg-slate-50 text-left">
+                <tr className="bg-slate-50 border-b border-slate-100">
                   {['Customer', 'Case Type', 'Priority', 'Risk', 'Status', 'Owner', 'Days Open'].map(h => (
-                    <th key={h} className="px-5 py-2 text-xs font-semibold text-slate-500">{h}</th>
+                    <th key={h} className="px-4 py-2 text-left font-semibold text-slate-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {cases.filter(c => isDueToday(c)).map(c => {
-                  const tr = truckRolls.find(t => t.id === c.truckRollId);
-                  const risk = computeRisk(c, tr);
+                {dueTodayCases.map(c => {
+                  const risk = computeRisk(c, truckRolls.find(t => t.id === c.truckRollId));
                   return (
-                    <tr key={c.id} className="hover:bg-slate-50">
-                      <td className="px-5 py-3">
-                        <Link to={`/cases/${c.id}`} className="font-medium text-blue-600 hover:underline">{c.customerName}</Link>
-                        <div className="text-xs text-slate-400">{c.id}</div>
+                    <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <Link to={`/cases/${c.id}`} className="font-medium text-blue-600 hover:text-blue-700">{c.customerName}</Link>
+                        <div className="text-[10px] text-slate-400">{c.id}</div>
                       </td>
-                      <td className="px-5 py-3 text-slate-600">{c.caseType}</td>
-                      <td className="px-5 py-3"><PriorityBadge priority={c.priority} /></td>
-                      <td className="px-5 py-3"><RiskBadge level={risk.level} /></td>
-                      <td className="px-5 py-3"><StatusBadge status={c.status} /></td>
-                      <td className="px-5 py-3 text-slate-600">{c.owner}</td>
-                      <td className="px-5 py-3 text-slate-600">{daysOpen(c)}d</td>
+                      <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{c.caseType}</td>
+                      <td className="px-4 py-2.5"><PriorityBadge priority={c.priority} /></td>
+                      <td className="px-4 py-2.5"><RiskBadge level={risk.level} /></td>
+                      <td className="px-4 py-2.5"><StatusBadge status={c.status} /></td>
+                      <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">{c.owner}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{daysOpen(c)}d</td>
                     </tr>
                   );
                 })}
@@ -226,6 +234,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
     </div>
   );
 }
