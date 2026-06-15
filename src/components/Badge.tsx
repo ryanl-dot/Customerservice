@@ -1,4 +1,5 @@
 import type { Priority, CaseStatus } from '../data/sampleData';
+import type { RiskLevel } from '../utils/caseLogic';
 
 export function PriorityBadge({ priority }: { priority: Priority }) {
   const styles: Record<Priority, string> = {
@@ -32,6 +33,25 @@ export function StatusBadge({ status }: { status: CaseStatus | string }) {
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${styles[status] || 'bg-slate-100 text-slate-600'}`}>
       {status}
+    </span>
+  );
+}
+
+export function RiskBadge({ level, score }: { level: RiskLevel; score?: number }) {
+  const styles: Record<RiskLevel, string> = {
+    Critical: 'bg-red-600 text-white',
+    High:     'bg-orange-500 text-white',
+    Medium:   'bg-yellow-400 text-slate-900',
+    Low:      'bg-green-100 text-green-700 border border-green-200',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold ${styles[level]}`}>
+      {level === 'Critical' && '🔴 '}
+      {level === 'High' && '🟠 '}
+      {level === 'Medium' && '🟡 '}
+      {level === 'Low' && '🟢 '}
+      {level}
+      {score !== undefined && <span className="opacity-75 font-normal">({score})</span>}
     </span>
   );
 }

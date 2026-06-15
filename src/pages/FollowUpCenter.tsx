@@ -1,24 +1,39 @@
 import { Link } from 'react-router-dom';
 import { AlertCircle, Clock, Calendar, Users, RefreshCw, Building } from 'lucide-react';
 import { cases } from '../data/sampleData';
-import { PriorityBadge, StatusBadge } from '../components/Badge';
+import { PriorityBadge, StatusBadge, RiskBadge } from '../components/Badge';
+import { isOverdue, isDueToday, hasNoRecentUpdate, daysOpen, daysSinceLastUpdate, computeRisk, TODAY } from '../utils/caseLogic';
+import { truckRolls } from '../data/sampleData';
 
-const TODAY = '2026-06-15';
 const THIS_WEEK_END = '2026-06-21';
-const THREE_DAYS_AGO = '2026-06-12';
 
 function CaseRow({ c }: { c: typeof cases[0] }) {
+  const tr = truckRolls.find(t => t.id === c.truckRollId);
+  const risk = computeRisk(c, tr);
+  const overdue = isOverdue(c);
+  const sinceUpdate = daysSinceLastUpdate(c);
+  const open = daysOpen(c);
   return (
-    <tr className="hover:bg-slate-50 border-b border-slate-50">
+    <tr className={`hover:bg-slate-50 border-b border-slate-50 ${overdue ? 'bg-red-50/30' : ''}`}>
       <td className="px-4 py-3">
         <Link to={`/cases/${c.id}`} className="font-medium text-blue-600 hover:underline block text-sm">{c.customerName}</Link>
         <span className="text-xs text-slate-400">{c.id} · {c.caseType}</span>
       </td>
       <td className="px-4 py-3 text-sm text-slate-600">{c.owner}</td>
       <td className="px-4 py-3"><PriorityBadge priority={c.priority} /></td>
+      <td className="px-4 py-3"><RiskBadge level={risk.level} /></td>
       <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
-      <td className="px-4 py-3 text-sm text-slate-500">{c.nextFollowUp || '—'}</td>
-      <td className="px-4 py-3 text-sm text-slate-500">{c.lastUpdate}</td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className={`text-sm ${overdue ? 'text-red-600 font-semibold' : isDueToday(c) ? 'text-amber-600 font-semibold' : 'text-slate-500'}`}>
+          {overdue && '⚠ '}{isDueToday(c) && '📅 '}{c.nextFollowUp || '—'}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span className={`text-sm ${sinceUpdate >= 3 ? 'text-orange-600 font-semibold' : 'text-slate-500'}`}>
+          {sinceUpdate === 0 ? 'Today' : `${sinceUpdate}d ago`}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-500">{open}d</td>
     </tr>
   );
 }
@@ -40,7 +55,7 @@ function Section({ title, icon: Icon, color, cases, emptyText }: {
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr>
-                {['Customer / Case', 'Owner', 'Priority', 'Status', 'Follow-Up Date', 'Last Update'].map(h => (
+                {['Customer / Case', 'Owner', 'Priority', 'Risk', 'Status', 'Follow-Up Date', 'Last Update', 'Days Open'].map(h => (
                   <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -58,10 +73,10 @@ function Section({ title, icon: Icon, color, cases, emptyText }: {
 export default function FollowUpCenter() {
   const active = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
 
-  const overdue = active.filter(c => c.nextFollowUp && c.nextFollowUp < TODAY);
-  const dueToday = active.filter(c => c.nextFollowUp === TODAY);
+  const overdue = active.filter(isOverdue);
+  const dueToday = active.filter(isDueToday);
   const upcomingWeek = active.filter(c => c.nextFollowUp && c.nextFollowUp > TODAY && c.nextFollowUp <= THIS_WEEK_END);
-  const noUpdate = active.filter(c => c.lastUpdate < THREE_DAYS_AGO && !overdue.includes(c));
+  const noUpdate = active.filter(c => hasNoRecentUpdate(c) && !isOverdue(c));
   const waitingCustomer = active.filter(c => c.status === 'Waiting on Customer');
   const waitingInternal = active.filter(c => c.status === 'Waiting on Internal Team');
 

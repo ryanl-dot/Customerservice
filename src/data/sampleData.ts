@@ -105,6 +105,8 @@ export interface Notification {
   customerName: string;
   timestamp: string;
   read: boolean;
+  slackChannel: string;
+  slackPayload: string;
 }
 
 export interface Template {
@@ -866,16 +868,86 @@ export const truckRolls: TruckRoll[] = [
 ];
 
 export const notifications: Notification[] = [
-  { id: 'N-001', type: 'overdue', message: 'CS-1006 (Dorothy & Samuel Kim) — Follow-up overdue by 8 days', caseId: 'CS-1006', customerName: 'Dorothy & Samuel Kim', timestamp: '2026-06-15T08:00:00', read: false },
-  { id: 'N-002', type: 'truck_roll_scheduled', message: 'TR-1001 — Truck roll scheduled for Robert & Linda Hargrove today (June 15)', caseId: 'CS-1001', customerName: 'Robert & Linda Hargrove', timestamp: '2026-06-15T07:30:00', read: false },
-  { id: 'N-003', type: 'truck_roll_missing_outcome', message: 'TR-1009 — Truck roll completed May 15 with no outcome filed for Marcus Webb', caseId: 'CS-1005', customerName: 'Marcus Webb', timestamp: '2026-06-15T08:15:00', read: false },
-  { id: 'N-004', type: 'customer_not_updated', message: 'TR-1003 — Customer William Ashby not updated after truck roll (June 5)', caseId: 'CS-1011', customerName: 'William Ashby', timestamp: '2026-06-15T08:30:00', read: false },
-  { id: 'N-005', type: 'revisit_required', message: 'CS-1011 (William Ashby) — Revisit required after incomplete truck roll', caseId: 'CS-1011', customerName: 'William Ashby', timestamp: '2026-06-10T16:00:00', read: true },
-  { id: 'N-006', type: 'escalation_detected', message: 'CS-1020 — Escalation keyword detected: "NBC News" in case notes for Christine Belmont', caseId: 'CS-1020', customerName: 'Christine Belmont', timestamp: '2026-06-11T10:45:00', read: false },
-  { id: 'N-007', type: 'escalation_detected', message: 'CS-1005 — Escalation keyword: "attorney" mentioned by Marcus Webb', caseId: 'CS-1005', customerName: 'Marcus Webb', timestamp: '2026-06-07T14:00:00', read: true },
-  { id: 'N-008', type: 'internal_overdue', message: 'CS-1004 (Angela & Thomas Reinholt) — Engineering follow-up overdue 7 days', caseId: 'CS-1004', customerName: 'Angela & Thomas Reinholt', timestamp: '2026-06-15T08:00:00', read: false },
-  { id: 'N-009', type: 'truck_roll_scheduled', message: 'TR-1002 — Truck roll scheduled for Patricia Weston tomorrow (June 16)', caseId: 'CS-1002', customerName: 'Patricia Weston', timestamp: '2026-06-15T09:00:00', read: false },
-  { id: 'N-010', type: 'overdue', message: 'CS-1010 (Jennifer Blackwood) — Follow-up overdue by 26 days', caseId: 'CS-1010', customerName: 'Jennifer Blackwood', timestamp: '2026-06-15T08:00:00', read: true },
+  {
+    id: 'N-001', type: 'overdue',
+    message: 'CS-1006 (Dorothy & Samuel Kim) — Follow-up overdue by 8 days',
+    caseId: 'CS-1006', customerName: 'Dorothy & Samuel Kim',
+    timestamp: '2026-06-15T08:00:00', read: false,
+    slackChannel: '#cs-followups',
+    slackPayload: '{"text":"⚠️ *Follow-Up Overdue* | #cs-followups","attachments":[{"color":"#ef4444","fields":[{"title":"Case","value":"CS-1006","short":true},{"title":"Customer","value":"Dorothy & Samuel Kim","short":true},{"title":"Detail","value":"Follow-up overdue by 8 days","short":false},{"title":"Action","value":"Log a note and contact customer immediately","short":false}],"footer":"SolarCS Command Center | Jun 15, 8:00 AM"}]}',
+  },
+  {
+    id: 'N-002', type: 'truck_roll_scheduled',
+    message: 'TR-1001 — Truck roll scheduled for Robert & Linda Hargrove today (June 15)',
+    caseId: 'CS-1001', customerName: 'Robert & Linda Hargrove',
+    timestamp: '2026-06-15T07:30:00', read: false,
+    slackChannel: '#cs-truck-rolls',
+    slackPayload: '{"text":"🚚 *Truck Roll Scheduled Today* | #cs-truck-rolls","attachments":[{"color":"#3b82f6","fields":[{"title":"Truck Roll","value":"TR-1001","short":true},{"title":"Customer","value":"Robert & Linda Hargrove","short":true},{"title":"Issue","value":"Gateway Not Reporting","short":true},{"title":"Technician","value":"Mike Torres","short":true},{"title":"Reminder","value":"Confirm customer is home. Bring replacement IQ Gateway.","short":false}],"footer":"SolarCS Command Center | Jun 15, 7:30 AM"}]}',
+  },
+  {
+    id: 'N-003', type: 'truck_roll_missing_outcome',
+    message: 'TR-1009 — Truck roll completed May 15 with no outcome filed for Marcus Webb',
+    caseId: 'CS-1005', customerName: 'Marcus Webb',
+    timestamp: '2026-06-15T08:15:00', read: false,
+    slackChannel: '#cs-truck-rolls',
+    slackPayload: '{"text":"📋 *Truck Roll Missing Outcome* | #cs-truck-rolls","attachments":[{"color":"#f97316","fields":[{"title":"Truck Roll","value":"TR-1009","short":true},{"title":"Customer","value":"Marcus Webb","short":true},{"title":"Visit Date","value":"May 15, 2026","short":true},{"title":"Days Overdue","value":"31 days","short":true},{"title":"Action Required","value":"Technician must complete outcome form immediately. Was issue resolved? Revisit needed? Customer updated?","short":false}],"footer":"SolarCS Command Center | Jun 15, 8:15 AM"}]}',
+  },
+  {
+    id: 'N-004', type: 'customer_not_updated',
+    message: 'TR-1003 — Customer William Ashby not updated after truck roll (June 5)',
+    caseId: 'CS-1011', customerName: 'William Ashby',
+    timestamp: '2026-06-15T08:30:00', read: false,
+    slackChannel: '#cs-truck-rolls',
+    slackPayload: '{"text":"👤 *Customer Not Updated After Truck Roll* | #cs-truck-rolls","attachments":[{"color":"#f97316","fields":[{"title":"Case","value":"CS-1011","short":true},{"title":"Customer","value":"William Ashby","short":true},{"title":"Truck Roll Date","value":"Jun 5, 2026","short":true},{"title":"Days Since Visit","value":"10 days","short":true},{"title":"Action Required","value":"Call or email customer today with visit outcome and next steps.","short":false}],"footer":"SolarCS Command Center | Jun 15, 8:30 AM"}]}',
+  },
+  {
+    id: 'N-005', type: 'revisit_required',
+    message: 'CS-1011 (William Ashby) — Revisit required after incomplete truck roll',
+    caseId: 'CS-1011', customerName: 'William Ashby',
+    timestamp: '2026-06-10T16:00:00', read: true,
+    slackChannel: '#cs-truck-rolls',
+    slackPayload: '{"text":"🔄 *Revisit Required* | #cs-truck-rolls","attachments":[{"color":"#f97316","fields":[{"title":"Case","value":"CS-1011","short":true},{"title":"Customer","value":"William Ashby","short":true},{"title":"Reason","value":"First truck roll replaced only 1 of 2 failed microinverters","short":false},{"title":"Action Required","value":"Schedule revisit. Ensure technician brings 32-ft ladder. RMA unit arrived Jun 12.","short":false}],"footer":"SolarCS Command Center | Jun 10, 4:00 PM"}]}',
+  },
+  {
+    id: 'N-006', type: 'escalation_detected',
+    message: 'CS-1020 — Escalation keyword detected: "NBC News" in case notes for Christine Belmont',
+    caseId: 'CS-1020', customerName: 'Christine Belmont',
+    timestamp: '2026-06-11T10:45:00', read: false,
+    slackChannel: '#cs-escalations',
+    slackPayload: '{"text":"🚨 *Escalation Detected* | #cs-escalations","attachments":[{"color":"#dc2626","fields":[{"title":"Case","value":"CS-1020","short":true},{"title":"Customer","value":"Christine Belmont","short":true},{"title":"Keyword Detected","value":"NBC News / Media contact","short":false},{"title":"Context","value":"Customer threatening to contact local news after 5 months of unresolved issues","short":false},{"title":"Immediate Action","value":"Director must call customer by EOD. Do not allow this to escalate to media.","short":false}],"footer":"SolarCS Command Center | Jun 11, 10:45 AM"}]}',
+  },
+  {
+    id: 'N-007', type: 'escalation_detected',
+    message: 'CS-1005 — Escalation keyword: "attorney" mentioned by Marcus Webb',
+    caseId: 'CS-1005', customerName: 'Marcus Webb',
+    timestamp: '2026-06-07T14:00:00', read: true,
+    slackChannel: '#cs-escalations',
+    slackPayload: '{"text":"🚨 *Escalation Detected* | #cs-escalations","attachments":[{"color":"#dc2626","fields":[{"title":"Case","value":"CS-1005","short":true},{"title":"Customer","value":"Marcus Webb","short":true},{"title":"Keyword Detected","value":"Attorney / Legal threat","short":false},{"title":"Context","value":"3 missed appointments. Customer also filing BBB complaint.","short":false},{"title":"Immediate Action","value":"Notify legal team. Management must review before any further contact with customer.","short":false}],"footer":"SolarCS Command Center | Jun 7, 2:00 PM"}]}',
+  },
+  {
+    id: 'N-008', type: 'internal_overdue',
+    message: 'CS-1004 (Angela & Thomas Reinholt) — Engineering follow-up overdue 7 days',
+    caseId: 'CS-1004', customerName: 'Angela & Thomas Reinholt',
+    timestamp: '2026-06-15T08:00:00', read: false,
+    slackChannel: '#cs-internal',
+    slackPayload: '{"text":"🏢 *Internal Team Follow-Up Overdue* | #cs-internal","attachments":[{"color":"#eab308","fields":[{"title":"Case","value":"CS-1004","short":true},{"title":"Customer","value":"Angela & Thomas Reinholt","short":true},{"title":"Waiting On","value":"Engineering","short":true},{"title":"Days Waiting","value":"7 days","short":true},{"title":"Pending Item","value":"Shading analysis + RMA approval for 2 failed microinverters","short":false},{"title":"Action Required","value":"Ping @engineering-team in Slack. Escalate to manager if no response by noon.","short":false}],"footer":"SolarCS Command Center | Jun 15, 8:00 AM"}]}',
+  },
+  {
+    id: 'N-009', type: 'truck_roll_scheduled',
+    message: 'TR-1002 — Truck roll scheduled for Patricia Weston tomorrow (June 16)',
+    caseId: 'CS-1002', customerName: 'Patricia Weston',
+    timestamp: '2026-06-15T09:00:00', read: false,
+    slackChannel: '#cs-truck-rolls',
+    slackPayload: '{"text":"🚚 *Truck Roll Tomorrow — Reminder* | #cs-truck-rolls","attachments":[{"color":"#3b82f6","fields":[{"title":"Truck Roll","value":"TR-1002","short":true},{"title":"Customer","value":"Patricia Weston","short":true},{"title":"Issue","value":"Roof Leak","short":true},{"title":"Technician","value":"Carlos Reyes","short":true},{"title":"Reminder","value":"Confirm customer appointment. Bring full flashing kit and butyl tape.","short":false}],"footer":"SolarCS Command Center | Jun 15, 9:00 AM"}]}',
+  },
+  {
+    id: 'N-010', type: 'overdue',
+    message: 'CS-1010 (Jennifer Blackwood) — Follow-up overdue by 26 days',
+    caseId: 'CS-1010', customerName: 'Jennifer Blackwood',
+    timestamp: '2026-06-15T08:00:00', read: true,
+    slackChannel: '#cs-followups',
+    slackPayload: '{"text":"⚠️ *Follow-Up Overdue — Collections* | #cs-followups","attachments":[{"color":"#ef4444","fields":[{"title":"Case","value":"CS-1010","short":true},{"title":"Customer","value":"Jennifer Blackwood","short":true},{"title":"Days Overdue","value":"26 days","short":true},{"title":"Status","value":"Active collections / Legal proceedings","short":true},{"title":"Note","value":"DO NOT contact customer directly. All contact through legal team only.","short":false}],"footer":"SolarCS Command Center | Jun 15, 8:00 AM"}]}',
+  },
 ];
 
 export const templates: Template[] = [

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp, ClipboardX, UserX } from 'lucide-react';
 import { truckRolls } from '../data/sampleData';
+import { isTruckRollMissingOutcome, needsCustomerUpdateAfterTruckRoll, isTruckRollPastDate } from '../utils/caseLogic';
 
 type TruckRollStatus = 'Scheduled' | 'In Progress' | 'Completed' | 'Pending Approval' | 'Revisit Required' | 'Closed';
 
@@ -24,13 +25,22 @@ function BoolDisplay({ val }: { val: boolean | null }) {
 function TruckRollRow({ t }: { t: typeof truckRolls[0] }) {
   const [expanded, setExpanded] = useState(false);
   const statusStyle = STATUS_COLORS[t.status] || 'bg-slate-100 text-slate-600';
+  const missingOutcome = isTruckRollMissingOutcome(t);
+  const needsUpdate = needsCustomerUpdateAfterTruckRoll(t);
+  const pastDate = isTruckRollPastDate(t);
+  const rowAlert = missingOutcome || needsUpdate || pastDate;
 
   return (
     <>
-      <tr className="hover:bg-slate-50 border-b border-slate-100 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+      <tr className={`hover:bg-slate-50 border-b border-slate-100 cursor-pointer ${rowAlert ? 'bg-orange-50/40' : ''}`} onClick={() => setExpanded(!expanded)}>
         <td className="px-4 py-3">
           <div className="font-medium text-sm text-slate-800">{t.customerName}</div>
-          <div className="text-xs text-slate-400">{t.id}</div>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span className="text-xs text-slate-400">{t.id}</span>
+            {missingOutcome && <span className="inline-flex items-center gap-0.5 text-[10px] bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded font-semibold"><ClipboardX size={9} />Outcome Missing</span>}
+            {needsUpdate && <span className="inline-flex items-center gap-0.5 text-[10px] bg-orange-100 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded font-semibold"><UserX size={9} />Not Updated</span>}
+            {pastDate && <span className="text-[10px] bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded font-semibold">Past Date</span>}
+          </div>
         </td>
         <td className="px-4 py-3 text-sm text-slate-600">{t.issueType}</td>
         <td className="px-4 py-3 text-sm text-slate-600">{t.technician}</td>

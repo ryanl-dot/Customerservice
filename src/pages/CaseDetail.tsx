@@ -1,16 +1,20 @@
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, Phone, Mail, MapPin, Calendar, User, Zap, AlertTriangle, Truck, Wand2, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Phone, Mail, MapPin, Calendar, User, Zap, AlertTriangle, Truck, Wand2, ChevronRight, ShieldAlert, Info } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
-import { PriorityBadge, StatusBadge, WaitingBadge } from '../components/Badge';
+import { PriorityBadge, StatusBadge, WaitingBadge, RiskBadge } from '../components/Badge';
 import { useState } from 'react';
-
-const TODAY = '2026-06-15';
+import {
+  computeRisk, daysOpen as calcDaysOpen, daysSinceLastUpdate,
+  isOverdue, isDueToday, hasNoRecentUpdate,
+  isTruckRollMissingOutcome, needsCustomerUpdateAfterTruckRoll,
+} from '../utils/caseLogic';
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
   const c = cases.find(cs => cs.id === id);
   const [summaryVisible, setSummaryVisible] = useState(false);
   const [actionVisible, setActionVisible] = useState(false);
+  const [riskVisible, setRiskVisible] = useState(false);
 
   if (!c) return (
     <div className="text-center py-20 text-slate-400">
@@ -19,7 +23,14 @@ export default function CaseDetail() {
   );
 
   const truckRoll = c.truckRollId ? truckRolls.find(t => t.id === c.truckRollId) : null;
-  const daysOpen = Math.floor((new Date(TODAY).getTime() - new Date(c.dateOpened).getTime()) / 86400000);
+  const daysOpen = calcDaysOpen(c);
+  const sinceUpdate = daysSinceLastUpdate(c);
+  const risk = computeRisk(c, truckRoll ?? undefined);
+  const overdue = isOverdue(c);
+  const dueToday = isDueToday(c);
+  const noUpdate = hasNoRecentUpdate(c);
+  const missingOutcome = truckRoll ? isTruckRollMissingOutcome(truckRoll) : false;
+  const needsCustomerUpdate = truckRoll ? needsCustomerUpdateAfterTruckRoll(truckRoll) : false;
 
   const generatedSummary = `Case ${c.id} — ${c.customerName}
 Type: ${c.caseType} | Priority: ${c.priority} | Status: ${c.status}
@@ -64,7 +75,16 @@ Last Note (${c.timeline[c.timeline.length - 1]?.date}):
             <span className="text-slate-300">·</span>
             <PriorityBadge priority={c.priority} />
             <StatusBadge status={c.status} />
+            <RiskBadge level={risk.level} score={risk.score} />
             {c.waitingOn !== 'None' && <WaitingBadge waitingOn={c.waitingOn} />}
+          </div>
+          {/* Inline smart flags */}
+          <div className="flex flex-wrap gap-2 mt-2">
+            {overdue && <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-medium">⚠ Follow-up overdue</span>}
+            {dueToday && <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">📅 Due today</span>}
+            {noUpdate && <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">🕐 No update {sinceUpdate}d</span>}
+            {missingOutcome && <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">📋 TR outcome missing</span>}
+            {needsCustomerUpdate && <span className="text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">👤 Customer not updated</span>}
           </div>
         </div>
         <a href={c.hubspotLink} className="flex items-center gap-2 text-sm text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-50">
@@ -103,11 +123,9 @@ Last Note (${c.timeline[c.timeline.length - 1]?.date}):
             <h2 className="font-semibold text-slate-700 text-sm mb-4">Case Details</h2>
             <dl className="space-y-2 text-sm">
               {[
-                ['Case Type', c.caseType],
-                ['Owner', c.owner],
-                ['Date Opened', `${c.dateOpened} (${daysOpen}d)`],
-                ['Last Update', c.lastUpdate],
-                ['Next Follow-Up', c.nextFollowUp || '—'],
+                ['Date Opened', `${c.dateOpened} (${daysOpen}d open)`],
+                ['Last Updated', `${c.lastUpdate} (${sinceUpdate}d ago)`],
+                ['Next Follow-Up', c.nextFollowUp ? `${c.nextFollowUp}${overdue ? ' ⚠ OVERDUE' : dueToday ? ' 📅 TODAY' : ''}` : '—'],
                 ['Waiting On', c.waitingOn],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-2">
@@ -119,6 +137,32 @@ Last Note (${c.timeline[c.timeline.length - 1]?.date}):
           </div>
 
           {/* Escalations */}
+          {/* Risk Score */}
+          <div className={`rounded-xl border p-5 ${risk.level === 'Critical' ? 'bg-red-50 border-red-200' : risk.level === 'High' ? 'bg-orange-50 border-orange-200' : risk.level === 'Medium' ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
+                <ShieldAlert size={14} /> Risk Score
+              </h2>
+              <RiskBadge level={risk.level} score={risk.score} />
+            </div>
+            <button
+              onClick={() => setRiskVisible(!riskVisible)}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 mb-2"
+            >
+              <Info size={12} /> {riskVisible ? 'Hide' : 'Show'} scoring breakdown
+            </button>
+            {riskVisible && (
+              <ul className="mt-2 space-y-1">
+                {risk.reasons.map((r, i) => (
+                  <li key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 flex-shrink-0" />
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           {c.escalations.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-5">
               <h2 className="font-semibold text-red-700 text-sm mb-3 flex items-center gap-2">
