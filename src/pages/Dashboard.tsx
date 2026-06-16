@@ -52,7 +52,7 @@ export default function Dashboard() {
       {/* Page title */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-slate-800">Dashboard</h1>
+          <h1 className="text-lg font-semibold text-slate-800">UPDATED DASHBOARD LIVE TEST</h1>
           <p className="text-xs text-slate-400 mt-0.5">Monday, June 15, 2026</p>
         </div>
         <div className="flex items-center gap-2">
