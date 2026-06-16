@@ -3,26 +3,35 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, CalendarCheck, Truck,
   Clock, AlertTriangle, Bell, FileText, ChevronLeft, ChevronRight, Sun,
+  BarChart2, ShieldCheck,
 } from 'lucide-react';
 import { notifications } from '../data/sampleData';
+import { useAdmin } from '../context/AdminContext';
 
 const navItems = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/cases', label: 'Customer Cases', icon: Users },
-  { path: '/follow-up', label: 'Follow-Up Center', icon: CalendarCheck },
-  { path: '/truck-roll', label: 'Truck Roll Center', icon: Truck },
-  { path: '/internal-waiting', label: 'Internal Waiting', icon: Clock },
-  { path: '/escalation', label: 'Escalations', icon: AlertTriangle },
-  { path: '/notifications', label: 'Notifications', icon: Bell },
-  { path: '/templates', label: 'Templates', icon: FileText },
+  { path: '/',                label: 'Dashboard',       icon: LayoutDashboard },
+  { path: '/cases',           label: 'Customer Cases',  icon: Users },
+  { path: '/follow-up',       label: 'Follow-Up Center',icon: CalendarCheck },
+  { path: '/truck-roll',      label: 'Truck Roll Center',icon: Truck },
+  { path: '/internal-waiting',label: 'Internal Waiting',icon: Clock },
+  { path: '/escalation',      label: 'Escalations',     icon: AlertTriangle },
+  { path: '/notifications',   label: 'Notifications',   icon: Bell },
+  { path: '/templates',       label: 'Templates',       icon: FileText },
+];
+
+const adminNavItems = [
+  { path: '/kpi', label: 'KPI Center', icon: BarChart2 },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const { isAdmin, toggleAdmin } = useAdmin();
   const unread = notifications.filter(n => !n.read).length;
 
-  const currentPage = navItems.find(n =>
+  const allNav = isAdmin ? [...navItems, ...adminNavItems] : navItems;
+
+  const currentPage = allNav.find(n =>
     location.pathname === n.path || (n.path !== '/' && location.pathname.startsWith(n.path))
   );
 
@@ -33,7 +42,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <aside className={`${collapsed ? 'w-14' : 'w-56'} bg-slate-900 flex flex-col flex-shrink-0 transition-all duration-200`}>
 
         {/* Brand */}
-        <div className={`flex items-center h-12 border-b border-slate-800 px-3 gap-2.5 flex-shrink-0`}>
+        <div className="flex items-center h-12 border-b border-slate-800 px-3 gap-2.5 flex-shrink-0">
           <div className="w-7 h-7 bg-amber-400 rounded-md flex items-center justify-center flex-shrink-0">
             <Sun size={14} className="text-slate-900" />
           </div>
@@ -63,15 +72,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               >
                 <Icon size={16} className="flex-shrink-0" />
                 {!collapsed && <span className="truncate">{label}</span>}
-
-                {/* Tooltip when collapsed */}
                 {collapsed && (
                   <span className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded-md bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
                     {label}
                   </span>
                 )}
-
-                {/* Unread badge */}
                 {path === '/notifications' && unread > 0 && (
                   <span className={`${collapsed ? 'absolute top-0.5 right-0.5 w-3.5 h-3.5 text-[9px]' : 'ml-auto w-4 h-4 text-[10px]'} bg-red-500 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0`}>
                     {unread > 9 ? '9+' : unread}
@@ -80,7 +85,59 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+
+          {/* Admin section */}
+          {isAdmin && (
+            <>
+              <div className={`${collapsed ? 'mx-1.5 my-1.5 border-t border-slate-800' : 'mx-2.5 my-1.5 flex items-center gap-2'}`}>
+                {!collapsed && (
+                  <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Admin</span>
+                )}
+                {!collapsed && <div className="flex-1 border-t border-slate-800" />}
+              </div>
+              {adminNavItems.map(({ path, label, icon: Icon }) => {
+                const active = location.pathname === path || location.pathname.startsWith(path);
+                return (
+                  <Link
+                    key={path}
+                    to={path}
+                    title={collapsed ? label : undefined}
+                    className={`relative flex items-center gap-2.5 mx-1.5 px-2.5 py-2 rounded-md mb-0.5 text-sm transition-colors group
+                      ${active
+                        ? 'bg-red-600 text-white font-semibold'
+                        : 'text-red-400 hover:bg-slate-800 hover:text-red-300'
+                      }`}
+                  >
+                    <Icon size={16} className="flex-shrink-0" />
+                    {!collapsed && <span className="truncate">{label}</span>}
+                    {!collapsed && <ShieldCheck size={11} className="ml-auto opacity-60 flex-shrink-0" />}
+                    {collapsed && (
+                      <span className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded-md bg-slate-800 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
+                        {label} (Admin)
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </>
+          )}
         </nav>
+
+        {/* Admin toggle */}
+        <div className={`border-t border-slate-800 px-2 py-2 flex-shrink-0 ${collapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={toggleAdmin}
+            title={collapsed ? (isAdmin ? 'Disable Admin' : 'Enable Admin') : undefined}
+            className={`${collapsed ? 'w-9 h-9 justify-center' : 'w-full px-2.5 py-1.5'} flex items-center gap-2 rounded-md text-xs font-medium transition-colors ${
+              isAdmin
+                ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30'
+                : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+            }`}
+          >
+            <ShieldCheck size={14} className="flex-shrink-0" />
+            {!collapsed && <span>{isAdmin ? 'Admin: ON' : 'Admin: OFF'}</span>}
+          </button>
+        </div>
 
         {/* Collapse toggle */}
         <button
@@ -107,6 +164,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="font-medium text-slate-700">{currentPage.label}</span>
               </>
             )}
+            {location.pathname === '/kpi' && (
+              <span className="ml-2 flex items-center gap-1 text-[11px] font-medium text-red-600 bg-red-50 ring-1 ring-red-200 px-1.5 py-0.5 rounded-md">
+                <ShieldCheck size={10} /> Admin
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-400">Mon · Jun 15, 2026</span>
@@ -115,6 +177,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="text-[10px] font-bold text-slate-900">SM</span>
               </div>
               <span className="text-sm font-medium text-slate-700">Sarah Mitchell</span>
+              {isAdmin && (
+                <span className="text-[10px] font-bold text-red-600 bg-red-50 ring-1 ring-red-200 px-1.5 py-0.5 rounded-md">Admin</span>
+              )}
             </div>
           </div>
         </header>
