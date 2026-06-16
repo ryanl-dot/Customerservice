@@ -2,95 +2,145 @@ import { useState } from 'react';
 import {
   ShieldCheck, Clock, CheckCircle2, Truck, Zap, FileCheck,
   Star, RefreshCw, AlertTriangle, DollarSign, TrendingUp,
-  ChevronDown, ChevronUp, Award,
+  ChevronDown, ChevronUp, Award, BarChart2,
 } from 'lucide-react';
-import {
-  closureWeekly, closureMonthly, ticketClosureSummary,
-  resolutionByType, resolutionOverall,
-  agingStats, agingTrend,
-  followUpCompliance, followUpTrend,
-  productionResolution, productionTrend,
-  truckRollCompletion, truckRollCompletionTrend,
-  truckRollRevisit, revisitTrend,
-  gnrResolution, gnrTrend,
-  docAccuracy, docAccuracyHistory,
-  auditScores,
-  firstResponse, firstResponseTrend,
-  reopenRate, reopenTrend,
-  escalationRate, escalationTrend,
-  collectionRecovery, collectionTrend,
-  scorecard, quarterlyScore, annualScore,
-  execMetrics,
-} from '../data/kpiData';
-import { LineChart, BarChart, Gauge } from '../components/MiniChart';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Inline data (no external import dependency) ───────────────────────────────
 
-function statusColor(status: string) {
-  if (status === 'good')    return 'text-emerald-600';
-  if (status === 'warn')    return 'text-amber-600';
-  if (status === 'bad')     return 'text-red-600';
-  return 'text-slate-600';
-}
+const MONTHLY = ['Jan','Feb','Mar','Apr','May','Jun'];
 
-function statusBg(status: string) {
-  if (status === 'good')    return 'bg-emerald-50 ring-1 ring-emerald-200';
-  if (status === 'warn')    return 'bg-amber-50 ring-1 ring-amber-200';
-  if (status === 'bad')     return 'bg-red-50 ring-1 ring-red-200';
-  return 'bg-slate-50 ring-1 ring-slate-200';
-}
+const KPI_SUMMARY = {
+  closureWeek: 14, closureMonth: 46, closureLastMonth: 125,
+  resolutionAvg: 12.0,
+  agingTotal: 14, aging7: 9, aging14: 6, aging30: 2,
+  followUpPct: 85.7, followUpRequired: 42, followUpCompleted: 36, followUpMissed: 4, followUpOverdue: 2,
+  prodPct: 89.3, prodTotal: 28, prodResolved: 25, prodEscalated: 3,
+  trPct: 60.0, trScheduled: 10, trCompleted: 6,
+  revisitPct: 33.3, revisitCount: 2,
+  gnrPct: 50.0, gnrTotal: 8, gnrRemote: 4, gnrSavings: 1800,
+  docPct: 85.0, docAudited: 20, docComplete: 17,
+  auditScore: 91, firstResponseAvg: 3.2, firstResponseSla: 87.5,
+  reopenPct: 3.2, reopenCount: 4, closedCount: 125,
+  escalationPct: 4.0, escalationCount: 5,
+  recoveryPct: 75.0, recoveredAccounts: 9, delinquentAccounts: 12,
+  recoveredAmount: 14820,
+};
 
-function goalStatus(val: number, goal: number, higherIsBetter: boolean) {
-  const ok = higherIsBetter ? val >= goal : val <= goal;
-  const close = higherIsBetter
-    ? val >= goal * 0.9 && val < goal
-    : val > goal && val <= goal * 1.15;
-  return ok ? 'good' : close ? 'warn' : 'bad';
-}
+const MONTHLY_SCORES = [
+  { month:'Jan', score:76, grade:'F' },
+  { month:'Feb', score:78, grade:'F' },
+  { month:'Mar', score:80, grade:'C' },
+  { month:'Apr', score:82, grade:'C' },
+  { month:'May', score:83, grade:'C' },
+  { month:'Jun', score:84, grade:'C' },
+];
 
-function pctColor(val: number, goal: number, higherIsBetter: boolean) {
-  const s = goalStatus(val, goal, higherIsBetter);
-  return s === 'good' ? '#10b981' : s === 'warn' ? '#f59e0b' : '#ef4444';
-}
+const EXEC_METRICS = [
+  { label:'Open Tickets',         value:'14',    goal:null,    status:'neutral' as const },
+  { label:'Due Today',            value:'4',     goal:null,    status:'warn' as const },
+  { label:'Over SLA',             value:'2',     goal:'0',     status:'bad' as const },
+  { label:'Avg Resolution',       value:'12.0d', goal:'<14d',  status:'good' as const },
+  { label:'TR Completion',        value:'60%',   goal:'95%',   status:'bad' as const },
+  { label:'TR Revisit Rate',      value:'33%',   goal:'<15%',  status:'bad' as const },
+  { label:'GNR Remote',           value:'50%',   goal:'40%+',  status:'good' as const },
+  { label:'Doc Accuracy',         value:'85%',   goal:'95%',   status:'warn' as const },
+  { label:'Follow-Up',            value:'85.7%', goal:'100%',  status:'warn' as const },
+  { label:'Monthly Score',        value:'84',    goal:'90+',   status:'warn' as const },
+];
 
-function gradeColor(g: string) {
-  if (g === 'A') return 'text-emerald-600 bg-emerald-50 ring-emerald-200';
-  if (g === 'B') return 'text-blue-600 bg-blue-50 ring-blue-200';
-  if (g === 'C') return 'text-amber-600 bg-amber-50 ring-amber-200';
-  if (g === 'D') return 'text-orange-600 bg-orange-50 ring-orange-200';
-  return 'text-red-600 bg-red-50 ring-red-200';
-}
+// ── Tiny inline bar chart ─────────────────────────────────────────────────────
 
-// ── Section wrapper ──────────────────────────────────────────────────────────
-
-function Section({ id, title, icon: Icon, accent, children }: {
-  id: string; title: string; icon: React.ElementType;
-  accent: string; children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(true);
+function TinyBar({ values, color = '#3b82f6', goalPct }: { values: number[]; color?: string; goalPct?: number }) {
+  const max = Math.max(...values) * 1.1 || 1;
+  const w = 200, h = 48, pad = 4;
+  const barW = (w - pad * 2) / values.length * 0.65;
+  const gap  = (w - pad * 2) / values.length;
   return (
-    <div id={id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`w-full flex items-center gap-2 px-4 py-2.5 border-b text-left ${accent}`}
-      >
-        <Icon size={14} />
-        <span className="text-sm font-semibold">{title}</span>
-        <span className="ml-auto">{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
-      </button>
-      {open && <div className="p-4">{children}</div>}
-    </div>
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h}>
+      {values.map((v, i) => {
+        const bh = (v / max) * (h - pad * 2);
+        const x  = pad + i * gap + (gap - barW) / 2;
+        return <rect key={i} x={x} y={h - pad - bh} width={barW} height={bh} fill={color} opacity={i === values.length-1 ? 1 : 0.45} rx="1" />;
+      })}
+      {goalPct !== undefined && (() => {
+        const gy = h - pad - (goalPct / max) * (h - pad * 2);
+        return <line x1={pad} y1={gy} x2={w-pad} y2={gy} stroke="#ef4444" strokeWidth="1" strokeDasharray="3,2" opacity="0.6" />;
+      })()}
+    </svg>
   );
 }
 
-// ── Stat tile ────────────────────────────────────────────────────────────────
+function TinyLine({ values, color = '#3b82f6', goal }: { values: number[]; color?: string; goal?: number }) {
+  if (values.length < 2) return null;
+  const max = Math.max(...values, goal ?? 0) * 1.1 || 1;
+  const min = Math.min(...values) * 0.9;
+  const w = 200, h = 48, pad = 4;
+  const iw = w - pad * 2, ih = h - pad * 2;
+  const x = (i: number) => pad + (i / (values.length - 1)) * iw;
+  const y = (v: number) => pad + ih - ((v - min) / (max - min || 1)) * ih;
+  const pts = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  const fill = `M${x(0)},${y(values[0])} ${values.map((v,i)=>`L${x(i)},${y(v)}`).join(' ')} L${x(values.length-1)},${h-pad} L${x(0)},${h-pad} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h}>
+      <path d={fill} fill={color} fillOpacity={0.1} />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      {goal !== undefined && (() => {
+        const gy = y(goal);
+        return gy > pad && gy < h-pad ? <line x1={pad} y1={gy} x2={w-pad} y2={gy} stroke="#ef4444" strokeWidth="1" strokeDasharray="3,2" opacity="0.6" /> : null;
+      })()}
+      <circle cx={x(values.length-1)} cy={y(values[values.length-1])} r="2.5" fill={color} />
+    </svg>
+  );
+}
 
-function Tile({ label, value, sub, status = 'neutral' }: {
-  label: string; value: string | number; sub?: string; status?: string;
-}) {
+function Gauge({ pct, color }: { pct: number; color: string }) {
+  const size = 64, r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = Math.min(Math.max(pct, 0), 100) / 100 * circ;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="5"
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ── Shared UI pieces ──────────────────────────────────────────────────────────
+
+function statusBg(s: string) {
+  if (s === 'good') return 'bg-emerald-50 ring-1 ring-emerald-200';
+  if (s === 'warn') return 'bg-amber-50 ring-1 ring-amber-200';
+  if (s === 'bad')  return 'bg-red-50 ring-1 ring-red-200';
+  return 'bg-slate-50 ring-1 ring-slate-200';
+}
+function statusText(s: string) {
+  if (s === 'good') return 'text-emerald-600';
+  if (s === 'warn') return 'text-amber-600';
+  if (s === 'bad')  return 'text-red-600';
+  return 'text-slate-600';
+}
+function gColor(g: string) {
+  if (g === 'A') return '#10b981';
+  if (g === 'B') return '#3b82f6';
+  if (g === 'C') return '#f59e0b';
+  if (g === 'D') return '#f97316';
+  return '#ef4444';
+}
+function gs(val: number, goal: number, higher: boolean, closePct = 0.9) {
+  if (higher ? val >= goal : val <= goal) return 'good';
+  if (higher ? val >= goal * closePct : val <= goal * (2 - closePct)) return 'warn';
+  return 'bad';
+}
+function pctColor(val: number, goal: number, higher: boolean) {
+  const s = gs(val, goal, higher);
+  return s === 'good' ? '#10b981' : s === 'warn' ? '#f59e0b' : '#ef4444';
+}
+
+function Tile({ label, value, sub, status = 'neutral' }: { label: string; value: string|number; sub?: string; status?: string }) {
   return (
     <div className={`rounded-lg p-3 ${statusBg(status)}`}>
-      <div className={`text-xl font-bold ${statusColor(status)}`}>{value}</div>
+      <div className={`text-xl font-bold ${statusText(status)}`}>{value}</div>
       <div className="text-[11px] text-slate-600 font-medium leading-tight mt-0.5">{label}</div>
       {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
     </div>
@@ -106,34 +156,54 @@ function GoalBadge({ passes, label }: { passes: boolean; label: string }) {
   );
 }
 
-// ── KPI Center ───────────────────────────────────────────────────────────────
+function KPICard({ title, icon: Icon, accent, children }: {
+  title: string; icon: React.ElementType; accent: string; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className={`w-full flex items-center gap-2 px-4 py-2.5 border-b text-left ${accent}`}>
+        <Icon size={14} />
+        <span className="text-sm font-semibold">{title}</span>
+        <span className="ml-auto">{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
+      </button>
+      {open && <div className="p-4">{children}</div>}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function KPICenter() {
-  const latestAudit = auditScores[auditScores.length - 1];
-  const latestScore = scorecard[scorecard.length - 1];
+  const latestScore = MONTHLY_SCORES[MONTHLY_SCORES.length - 1];
 
   return (
     <div className="space-y-4 max-w-[1400px]">
 
+      {/* ── TEST BANNER ─ always visible ── */}
+      <div className="bg-blue-600 text-white rounded-lg px-5 py-4 flex items-center gap-3">
+        <BarChart2 size={22} className="flex-shrink-0" />
+        <div>
+          <div className="text-xl font-bold tracking-wide">ADMIN KPI CENTER TEST</div>
+          <div className="text-blue-100 text-xs mt-0.5">All metrics are mock data · June 2026</div>
+        </div>
+        <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-white/20 px-3 py-1.5 rounded-md">
+          <ShieldCheck size={13} /> Admin Only
+        </span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold text-slate-800">KPI Center</h1>
-            <span className="flex items-center gap-1 text-[11px] font-medium bg-red-600 text-white px-2 py-0.5 rounded-md">
-              <ShieldCheck size={10} /> Admin Only
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5">June 2026 — All KPIs calculated from case data. Mock trend data shown.</p>
+          <h1 className="text-lg font-semibold text-slate-800">KPI Center</h1>
+          <p className="text-xs text-slate-400 mt-0.5">14 KPIs · Monthly Scorecard · Executive Summary</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ring-1 ${gradeColor(latestScore.grade)}`}>
-            Jun Score: {latestScore.weighted} — {latestScore.grade}
-          </span>
-        </div>
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ring-1`} style={{ color: gColor(latestScore.grade), backgroundColor: gColor(latestScore.grade) + '18', outlineColor: gColor(latestScore.grade) + '40' }}>
+          Jun Score: {latestScore.score} — {latestScore.grade}
+        </span>
       </div>
 
-      {/* ── Executive Dashboard ────────────────────────────────────────────── */}
+      {/* ── Executive Dashboard bar ── */}
       <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -141,409 +211,334 @@ export default function KPICenter() {
           <span className="ml-auto text-[10px] text-slate-600">Jun 15, 2026</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 xl:grid-cols-10">
-          {execMetrics.map(m => (
-            <div key={m.label} className="flex flex-col gap-0.5 px-3 py-3 border-r border-slate-800 last:border-r-0">
-              <div className={`text-base font-bold leading-none ${m.status === 'good' ? 'text-emerald-400' : m.status === 'warn' ? 'text-amber-400' : m.status === 'bad' ? 'text-red-400' : 'text-white'}`}>
-                {m.value}
-              </div>
-              <div className="text-[10px] text-slate-400 leading-tight">{m.label}</div>
-              {m.goal && (
-                <div className="text-[9px] text-slate-600">Goal: {m.goal}</div>
-              )}
-              <div className={`w-1.5 h-1.5 rounded-full mt-0.5 ${m.status === 'good' ? 'bg-emerald-500' : m.status === 'warn' ? 'bg-amber-500' : m.status === 'bad' ? 'bg-red-500' : 'bg-slate-600'}`} />
+          {EXEC_METRICS.map(m => (
+            <div key={m.label} className="px-3 py-3 border-r border-slate-800 last:border-r-0">
+              <div className={`text-base font-bold leading-none ${m.status === 'good' ? 'text-emerald-400' : m.status === 'bad' ? 'text-red-400' : m.status === 'warn' ? 'text-amber-400' : 'text-white'}`}>{m.value}</div>
+              <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">{m.label}</div>
+              {m.goal && <div className="text-[9px] text-slate-600 mt-0.5">Goal: {m.goal}</div>}
+              <div className={`w-1.5 h-1.5 rounded-full mt-1 ${m.status === 'good' ? 'bg-emerald-500' : m.status === 'bad' ? 'bg-red-500' : m.status === 'warn' ? 'bg-amber-500' : 'bg-slate-600'}`} />
             </div>
           ))}
         </div>
       </div>
 
-      {/* ─── TICKET MANAGEMENT ─────────────────────────────────────────────── */}
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest pt-1">Ticket Management KPIs</div>
 
       {/* 1. Ticket Closure Rate */}
-      <Section id="closure" title="1 · Ticket Closure Rate" icon={CheckCircle2} accent="bg-sky-50 border-sky-100 text-sky-800">
+      <KPICard title="1 · Ticket Closure Rate" icon={CheckCircle2} accent="bg-sky-50 border-sky-100 text-sky-800">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Tile label="Closed This Week"   value={ticketClosureSummary.weeklyClosedThisWeek}  sub="Week of Jun 15" status="neutral" />
-          <Tile label="Closed Last Week"   value={ticketClosureSummary.weeklyClosedLastWeek}   sub="Week of Jun 8" status="neutral" />
-          <Tile label="Closed This Month"  value={ticketClosureSummary.monthlyClosedThisMonth} sub="June 2026 (partial)" status="neutral" />
-          <Tile label="Closed Last Month"  value={ticketClosureSummary.monthlyClosedLastMonth} sub="May 2026" status="neutral" />
+          <Tile label="Closed This Week"  value={KPI_SUMMARY.closureWeek}      status="neutral" />
+          <Tile label="Closed This Month" value={KPI_SUMMARY.closureMonth}     sub="Jun (partial)" status="neutral" />
+          <Tile label="Closed Last Month" value={KPI_SUMMARY.closureLastMonth} sub="May 2026" status="neutral" />
+          <Tile label="MoM Change"        value={`${KPI_SUMMARY.closureMonth > KPI_SUMMARY.closureLastMonth ? '+' : ''}${KPI_SUMMARY.closureMonth - KPI_SUMMARY.closureLastMonth}`} status={KPI_SUMMARY.closureMonth >= KPI_SUMMARY.closureLastMonth ? 'good' : 'bad'} />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div>
-            <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Weekly Closures (last 22 weeks)</p>
-            <BarChart data={closureWeekly} labels={closureWeekly.map((_, i) => i % 4 === 0 ? closureWeekly[i].week.replace(' W1','') : '')} height={72} color="#0ea5e9" />
-          </div>
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Closures (YTD)</p>
-            <BarChart data={closureMonthly} labels={closureMonthly.map(d => d.month)} height={72} color="#0ea5e9" />
+            <TinyBar values={[84,81,100,113,125,46]} color="#0ea5e9" />
+            <div className="flex justify-between mt-0.5">{MONTHLY.map(m => <span key={m} className="text-[9px] text-slate-400">{m}</span>)}</div>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Weekly Trend (last 8 weeks)</p>
+            <TinyBar values={[29,33,28,35,32,14,0,0].slice(0,6)} color="#0ea5e9" />
           </div>
         </div>
-      </Section>
+      </KPICard>
 
       {/* 2. Average Resolution Time */}
-      <Section id="resolution" title="2 · Average Resolution Time" icon={Clock} accent="bg-indigo-50 border-indigo-100 text-indigo-800">
-        <div className="mb-3 flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-500">Overall avg:</span>
-          <span className="font-bold text-slate-800">{resolutionOverall[resolutionOverall.length-1].value}d</span>
-          <GoalBadge passes={resolutionOverall[resolutionOverall.length-1].value <= 14} label="Goal < 14d" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-          {resolutionByType.map(r => {
-            const passes = r.avgDays <= r.goalDays;
-            const s = goalStatus(r.avgDays, r.goalDays, false);
+      <KPICard title="2 · Average Resolution Time" icon={Clock} accent="bg-indigo-50 border-indigo-100 text-indigo-800">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          {[
+            { type:'Billing',    avg:5.2,  goal:7,  trend:[6.8,7.1,6.2,5.9,5.4,5.2] },
+            { type:'Production', avg:16.4, goal:14, trend:[18.2,17.8,17.1,16.9,16.7,16.4] },
+            { type:'Truck Roll', avg:19.1, goal:21, trend:[24.3,23.1,21.8,20.9,19.8,19.1] },
+          ].map(r => {
+            const passes = r.avg <= r.goal;
+            const s = gs(r.avg, r.goal, false);
             return (
-              <div key={r.type} className={`rounded-lg p-3 border ${s === 'good' ? 'border-emerald-200 bg-emerald-50' : s === 'warn' ? 'border-amber-200 bg-amber-50' : 'border-red-200 bg-red-50'}`}>
-                <div className="flex items-center justify-between mb-2">
+              <div key={r.type} className={`rounded-lg p-3 border ${s==='good'?'border-emerald-200 bg-emerald-50':s==='warn'?'border-amber-200 bg-amber-50':'border-red-200 bg-red-50'}`}>
+                <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-slate-700">{r.type}</span>
-                  <GoalBadge passes={passes} label={`Goal ≤${r.goalDays}d`} />
+                  <GoalBadge passes={passes} label={`≤${r.goal}d`} />
                 </div>
-                <div className={`text-2xl font-bold ${statusColor(s)}`}>{r.avgDays}d</div>
-                <div className="mt-2">
-                  <LineChart data={r.trend} height={40} color={pctColor(r.avgDays, r.goalDays, false)} goalValue={r.goalDays} />
-                </div>
+                <div className={`text-2xl font-bold ${statusText(s)}`}>{r.avg}d</div>
+                <TinyLine values={r.trend} color={pctColor(r.avg, r.goal, false)} goal={r.goal} />
+                <div className="flex justify-between mt-0.5">{MONTHLY.map(m=><span key={m} className="text-[9px] text-slate-400">{m}</span>)}</div>
               </div>
             );
           })}
         </div>
-        <div>
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Overall Avg Resolution Time Trend</p>
-          <LineChart data={resolutionOverall} height={52} color="#6366f1" goalValue={14} showDots />
-        </div>
-      </Section>
+      </KPICard>
 
-      {/* 3. Aging Ticket Percentage */}
-      <Section id="aging" title="3 · Aging Ticket Percentage" icon={AlertTriangle} accent="bg-orange-50 border-orange-100 text-orange-800">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <Tile label="Total Open" value={agingStats.totalOpen} status="neutral" />
-          <Tile label="Over 7 Days"  value={agingStats.over7Days.count}  sub={`${agingStats.over7Days.pct}%`}  status={goalStatus(agingStats.over7Days.pct, 50, false)} />
-          <Tile label="Over 14 Days" value={agingStats.over14Days.count} sub={`${agingStats.over14Days.pct}%`} status={goalStatus(agingStats.over14Days.pct, 25, false)} />
-          <Tile label="Over 30 Days" value={agingStats.over30Days.count} sub={`${agingStats.over30Days.pct}%`} status={goalStatus(agingStats.over30Days.pct, agingStats.goal30DayPct, false)} />
+      {/* 3. Aging Ticket % */}
+      <KPICard title="3 · Aging Ticket Percentage" icon={AlertTriangle} accent="bg-orange-50 border-orange-100 text-orange-800">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+          <Tile label="Total Open"  value={KPI_SUMMARY.agingTotal}                                                              status="neutral" />
+          <Tile label="Over 7 Days"  value={KPI_SUMMARY.aging7}  sub={`${((KPI_SUMMARY.aging7/KPI_SUMMARY.agingTotal)*100).toFixed(1)}%`} status="warn" />
+          <Tile label="Over 14 Days" value={KPI_SUMMARY.aging14} sub={`${((KPI_SUMMARY.aging14/KPI_SUMMARY.agingTotal)*100).toFixed(1)}%`} status="warn" />
+          <Tile label="Over 30 Days" value={KPI_SUMMARY.aging30} sub={`${((KPI_SUMMARY.aging30/KPI_SUMMARY.agingTotal)*100).toFixed(1)}%`} status="bad" />
         </div>
-        <div className="flex items-center gap-2 mb-3">
-          <GoalBadge passes={agingStats.over30Days.pct <= agingStats.goal30DayPct} label={`Goal: <${agingStats.goal30DayPct}% over 30d (currently ${agingStats.over30Days.pct}%)`} />
+        <GoalBadge passes={KPI_SUMMARY.aging30/KPI_SUMMARY.agingTotal*100 <= 10} label={`Goal: <10% over 30d (currently ${(KPI_SUMMARY.aging30/KPI_SUMMARY.agingTotal*100).toFixed(1)}%)`} />
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">% Over 30d — Monthly Trend</p>
+          <TinyLine values={[22.1,20.3,18.7,17.2,15.4,14.3]} color="#f97316" goal={10} />
         </div>
-        <div>
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">% Over 30 Days — Monthly Trend</p>
-          <LineChart data={agingTrend} height={52} color="#f97316" goalValue={10} />
-        </div>
-      </Section>
+      </KPICard>
 
       {/* 4. Follow-Up Compliance */}
-      <Section id="followup" title="4 · Follow-Up Compliance" icon={CheckCircle2} accent="bg-teal-50 border-teal-100 text-teal-800">
-        <div className="flex items-start gap-6 mb-4">
+      <KPICard title="4 · Follow-Up Compliance" icon={CheckCircle2} accent="bg-teal-50 border-teal-100 text-teal-800">
+        <div className="flex items-start gap-4 mb-3">
           <div className="relative flex-shrink-0">
-            <Gauge pct={followUpCompliance.pct} color={pctColor(followUpCompliance.pct, followUpCompliance.goal, true)} size={72} />
+            <Gauge pct={KPI_SUMMARY.followUpPct} color={pctColor(KPI_SUMMARY.followUpPct,100,true)} />
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{followUpCompliance.pct}%</span>
+              <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.followUpPct}%</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 flex-1">
-            <Tile label="Required"  value={followUpCompliance.required}  status="neutral" />
-            <Tile label="Completed" value={followUpCompliance.completed} status="good" />
-            <Tile label="Missed"    value={followUpCompliance.missed}    status={followUpCompliance.missed > 0 ? 'warn' : 'good'} />
-            <Tile label="Overdue"   value={followUpCompliance.overdue}   status={followUpCompliance.overdue > 0 ? 'bad' : 'good'} />
+            <Tile label="Required"  value={KPI_SUMMARY.followUpRequired}  status="neutral" />
+            <Tile label="Completed" value={KPI_SUMMARY.followUpCompleted} status="good" />
+            <Tile label="Missed"    value={KPI_SUMMARY.followUpMissed}    status="warn" />
+            <Tile label="Overdue"   value={KPI_SUMMARY.followUpOverdue}   status="bad" />
           </div>
         </div>
-        <GoalBadge passes={followUpCompliance.pct >= followUpCompliance.goal} label={`Goal: ${followUpCompliance.goal}% compliance`} />
-        <div className="mt-3">
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Compliance % Trend</p>
-          <LineChart data={followUpTrend} height={48} color="#0d9488" goalValue={100} />
-        </div>
-      </Section>
+        <GoalBadge passes={KPI_SUMMARY.followUpPct >= 100} label="Goal: 100%" />
+        <div className="mt-3"><TinyLine values={[78.2,80.1,82.4,84.0,85.3,85.7]} color="#0d9488" goal={100} /></div>
+      </KPICard>
 
-      {/* ─── SOLAR-SPECIFIC ─────────────────────────────────────────────────── */}
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest pt-1">Solar-Specific KPIs</div>
 
-      {/* 5. Production Concern Resolution */}
-      <Section id="production" title="5 · Production Concern Resolution Rate" icon={Zap} accent="bg-yellow-50 border-yellow-100 text-yellow-800">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="relative flex-shrink-0">
-            <Gauge pct={productionResolution.pct} color={pctColor(productionResolution.pct, productionResolution.goal, true)} size={72} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{productionResolution.pct}%</span>
+      {/* 5-8 in 2-column grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        <KPICard title="5 · Production Resolution Rate" icon={Zap} accent="bg-yellow-50 border-yellow-100 text-yellow-800">
+          <div className="flex items-start gap-4 mb-3">
+            <div className="relative flex-shrink-0">
+              <Gauge pct={KPI_SUMMARY.prodPct} color={pctColor(KPI_SUMMARY.prodPct,85,true)} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.prodPct}%</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 flex-1">
+              <Tile label="Total"    value={KPI_SUMMARY.prodTotal}    status="neutral" />
+              <Tile label="Resolved" value={KPI_SUMMARY.prodResolved} status="good" />
+              <Tile label="Escalated"value={KPI_SUMMARY.prodEscalated}status="warn" />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 flex-1">
-            <Tile label="Total Production" value={productionResolution.total}     status="neutral" />
-            <Tile label="Resolved"         value={productionResolution.resolved}  status="good" />
-            <Tile label="Escalated"        value={productionResolution.escalated} status={productionResolution.escalated > 0 ? 'warn' : 'good'} />
-          </div>
-        </div>
-        <GoalBadge passes={productionResolution.pct >= productionResolution.goal} label={`Goal: ${productionResolution.goal}%+ resolved without escalation`} />
-        <div className="mt-3">
-          <LineChart data={productionTrend} height={48} color="#eab308" goalValue={85} />
-        </div>
-      </Section>
+          <GoalBadge passes={KPI_SUMMARY.prodPct >= 85} label="Goal: 85%+" />
+          <div className="mt-2"><TinyLine values={[79.1,81.3,83.5,85.7,87.9,89.3]} color="#eab308" goal={85} /></div>
+        </KPICard>
 
-      {/* 6. Truck Roll Completion Rate */}
-      <Section id="tr-completion" title="6 · Truck Roll Completion Rate" icon={Truck} accent="bg-blue-50 border-blue-100 text-blue-800">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="relative flex-shrink-0">
-            <Gauge pct={truckRollCompletion.pct} color={pctColor(truckRollCompletion.pct, truckRollCompletion.goal, true)} size={72} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{truckRollCompletion.pct}%</span>
+        <KPICard title="6 · Truck Roll Completion Rate" icon={Truck} accent="bg-blue-50 border-blue-100 text-blue-800">
+          <div className="flex items-start gap-4 mb-3">
+            <div className="relative flex-shrink-0">
+              <Gauge pct={KPI_SUMMARY.trPct} color={pctColor(KPI_SUMMARY.trPct,95,true)} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.trPct}%</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 flex-1">
+              <Tile label="Scheduled" value={KPI_SUMMARY.trScheduled} status="neutral" />
+              <Tile label="Completed" value={KPI_SUMMARY.trCompleted} status="bad" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 flex-1">
-            <Tile label="Scheduled"  value={truckRollCompletion.scheduled} status="neutral" />
-            <Tile label="Completed"  value={truckRollCompletion.completed} status={goalStatus(truckRollCompletion.pct, truckRollCompletion.goal, true)} />
-          </div>
-        </div>
-        <GoalBadge passes={truckRollCompletion.pct >= truckRollCompletion.goal} label={`Goal: ${truckRollCompletion.goal}%+ completion (currently ${truckRollCompletion.pct}% — month in progress)`} />
-        <div className="mt-3">
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Completion % Trend</p>
-          <LineChart data={truckRollCompletionTrend} height={48} color="#3b82f6" goalValue={95} />
-        </div>
-      </Section>
+          <GoalBadge passes={KPI_SUMMARY.trPct >= 95} label="Goal: 95%+" />
+          <div className="mt-2"><TinyLine values={[88.2,90.1,92.3,91.7,93.4,60.0]} color="#3b82f6" goal={95} /></div>
+        </KPICard>
 
-      {/* 7. Truck Roll Revisit Rate */}
-      <Section id="tr-revisit" title="7 · Truck Roll Revisit Rate" icon={RefreshCw} accent="bg-orange-50 border-orange-100 text-orange-800">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="relative flex-shrink-0">
-            <Gauge pct={truckRollRevisit.pct} color={pctColor(truckRollRevisit.pct, truckRollRevisit.goal, false)} size={72} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{truckRollRevisit.pct}%</span>
+        <KPICard title="7 · Truck Roll Revisit Rate" icon={RefreshCw} accent="bg-orange-50 border-orange-100 text-orange-800">
+          <div className="flex items-start gap-4 mb-3">
+            <div className="relative flex-shrink-0">
+              <Gauge pct={KPI_SUMMARY.revisitPct} color={pctColor(KPI_SUMMARY.revisitPct,15,false)} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.revisitPct}%</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 flex-1">
+              <Tile label="Completed TRs"   value={KPI_SUMMARY.trCompleted}   status="neutral" />
+              <Tile label="Revisit Required" value={KPI_SUMMARY.revisitCount} status="bad" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 flex-1">
-            <Tile label="Completed TRs"    value={truckRollRevisit.completed}       status="neutral" />
-            <Tile label="Revisit Required" value={truckRollRevisit.revisitRequired} status={goalStatus(truckRollRevisit.pct, truckRollRevisit.goal, false)} />
-          </div>
-        </div>
-        <GoalBadge passes={truckRollRevisit.pct <= truckRollRevisit.goal} label={`Goal: <${truckRollRevisit.goal}% revisit rate (currently ${truckRollRevisit.pct}%)`} />
-        <div className="mt-3">
-          <LineChart data={revisitTrend} height={48} color="#f97316" goalValue={15} />
-        </div>
-      </Section>
+          <GoalBadge passes={KPI_SUMMARY.revisitPct <= 15} label="Goal: <15%" />
+          <div className="mt-2"><TinyLine values={[28.1,25.4,22.1,19.8,18.2,33.3]} color="#f97316" goal={15} /></div>
+        </KPICard>
 
-      {/* 8. GNR Remote Resolution */}
-      <Section id="gnr" title="8 · Gateway Not Reporting — Remote Resolution Rate" icon={TrendingUp} accent="bg-emerald-50 border-emerald-100 text-emerald-800">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="relative flex-shrink-0">
-            <Gauge pct={gnrResolution.pct} color={pctColor(gnrResolution.pct, gnrResolution.goal, true)} size={72} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{gnrResolution.pct}%</span>
+        <KPICard title="8 · GNR Remote Resolution Rate" icon={TrendingUp} accent="bg-emerald-50 border-emerald-100 text-emerald-800">
+          <div className="flex items-start gap-4 mb-3">
+            <div className="relative flex-shrink-0">
+              <Gauge pct={KPI_SUMMARY.gnrPct} color={pctColor(KPI_SUMMARY.gnrPct,40,true)} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.gnrPct}%</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 flex-1">
+              <Tile label="Total GNR"      value={KPI_SUMMARY.gnrTotal}  status="neutral" />
+              <Tile label="Remote Resolved"value={KPI_SUMMARY.gnrRemote} status="good" />
+              <Tile label="TRs Avoided"    value={KPI_SUMMARY.gnrRemote} status="good" />
+              <Tile label="Est. Savings"   value={`$${KPI_SUMMARY.gnrSavings.toLocaleString()}`} status="good" />
             </div>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-1">
-            <Tile label="Total GNR Cases"     value={gnrResolution.total}             status="neutral" />
-            <Tile label="Remote Resolutions"  value={gnrResolution.resolvedRemotely}  status="good" />
-            <Tile label="Truck Rolls Avoided" value={gnrResolution.truckRollsAvoided} status="good" />
-            <Tile label="Est. Cost Savings"   value={`$${(gnrResolution.truckRollsAvoided * gnrResolution.estimatedSavingsPerTR).toLocaleString()}`} sub={`@$${gnrResolution.estimatedSavingsPerTR}/TR`} status="good" />
-          </div>
-        </div>
-        <GoalBadge passes={gnrResolution.pct >= gnrResolution.goal} label={`Goal: ${gnrResolution.goal}%+ remote resolutions`} />
-        <div className="mt-3">
-          <LineChart data={gnrTrend} height={48} color="#10b981" goalValue={40} />
-        </div>
-      </Section>
+          <GoalBadge passes={KPI_SUMMARY.gnrPct >= 40} label="Goal: 40%+" />
+          <div className="mt-2"><TinyLine values={[32.4,35.1,38.7,41.2,46.3,50.0]} color="#10b981" goal={40} /></div>
+        </KPICard>
 
-      {/* ─── QUALITY ─────────────────────────────────────────────────────────── */}
+      </div>
+
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest pt-1">Quality KPIs</div>
 
-      {/* 9. Documentation Accuracy */}
-      <Section id="doc-accuracy" title="9 · Documentation Accuracy" icon={FileCheck} accent="bg-purple-50 border-purple-100 text-purple-800">
-        <div className="flex items-start gap-6 mb-4">
-          <div className="relative flex-shrink-0">
-            <Gauge pct={docAccuracy.pct} color={pctColor(docAccuracy.pct, docAccuracy.goal, true)} size={72} />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-sm font-bold text-slate-800">{docAccuracy.pct}%</span>
-            </div>
-          </div>
-          <div className="flex-1">
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <Tile label="Audited"  value={docAccuracy.audited}  status="neutral" />
-              <Tile label="Complete" value={docAccuracy.complete} status={goalStatus(docAccuracy.pct, docAccuracy.goal, true)} />
-            </div>
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-slate-500">Missing Fields</p>
-              {Object.entries(docAccuracy.missingFields).map(([field, count]) => (
-                <div key={field} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600">{field}</span>
-                  <span className={`font-semibold ${count > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <GoalBadge passes={docAccuracy.pct >= docAccuracy.goal} label={`Goal: ${docAccuracy.goal}%+`} />
-        <div className="mt-3">
-          <LineChart data={docAccuracyHistory} height={48} color="#8b5cf6" goalValue={95} />
-        </div>
-      </Section>
+      {/* 9-10 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-      {/* 10. Ticket Audit Score */}
-      <Section id="audit-score" title="10 · Ticket Audit Score" icon={Star} accent="bg-rose-50 border-rose-100 text-rose-800">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          {[
-            { label: 'Accuracy',         val: latestAudit.accuracy },
-            { label: 'Professionalism',  val: latestAudit.professionalism },
-            { label: 'Follow-Up Quality',val: latestAudit.followUpQuality },
-            { label: 'Resolution Quality',val: latestAudit.resolutionQuality },
-          ].map(({ label, val }) => (
-            <Tile key={label} label={label} value={val} sub="/100" status={goalStatus(val, 90, true)} />
-          ))}
-        </div>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="text-3xl font-bold text-slate-800">{latestAudit.overall}</div>
-          <div>
-            <GoalBadge passes={latestAudit.overall >= 90} label="Goal: 90+" />
-            <div className="text-[10px] text-slate-400 mt-1">June 2026 composite</div>
-          </div>
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Audit Score History</p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Month','Accuracy','Professionalism','Follow-Up','Resolution','Overall'].map(h => (
-                    <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {[...auditScores].reverse().map(r => (
-                  <tr key={r.month} className="hover:bg-slate-50">
-                    <td className="px-3 py-2 font-medium text-slate-700">{r.month}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.accuracy}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.professionalism}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.followUpQuality}</td>
-                    <td className="px-3 py-2 text-slate-600">{r.resolutionQuality}</td>
-                    <td className="px-3 py-2">
-                      <span className={`font-bold ${goalStatus(r.overall, 90, true) === 'good' ? 'text-emerald-600' : goalStatus(r.overall, 90, true) === 'warn' ? 'text-amber-600' : 'text-red-600'}`}>{r.overall}</span>
-                    </td>
-                  </tr>
+        <KPICard title="9 · Documentation Accuracy" icon={FileCheck} accent="bg-purple-50 border-purple-100 text-purple-800">
+          <div className="flex items-start gap-4 mb-3">
+            <div className="relative flex-shrink-0">
+              <Gauge pct={KPI_SUMMARY.docPct} color={pctColor(KPI_SUMMARY.docPct,95,true)} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.docPct}%</span>
+              </div>
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Tile label="Audited"  value={KPI_SUMMARY.docAudited}  status="neutral" />
+                <Tile label="Complete" value={KPI_SUMMARY.docComplete} status="warn" />
+              </div>
+              <div className="space-y-1">
+                {[['Customer Concern',1],['Root Cause',2],['Next Steps',0],['Follow-Up Date',3]].map(([f,c]) => (
+                  <div key={f as string} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500">{f}</span>
+                    <span className={`font-semibold ${(c as number) > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{c} missing</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
-        </div>
-      </Section>
+          <GoalBadge passes={KPI_SUMMARY.docPct >= 95} label="Goal: 95%+" />
+          <div className="mt-2"><TinyLine values={[72.1,75.4,78.9,81.2,83.7,85.0]} color="#8b5cf6" goal={95} /></div>
+        </KPICard>
 
-      {/* ─── ADDITIONAL KPIs ─────────────────────────────────────────────────── */}
+        <KPICard title="10 · Ticket Audit Score" icon={Star} accent="bg-rose-50 border-rose-100 text-rose-800">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="text-4xl font-bold text-slate-800">{KPI_SUMMARY.auditScore}</div>
+            <div>
+              <GoalBadge passes={KPI_SUMMARY.auditScore >= 90} label="Goal: 90+" />
+              <div className="text-[10px] text-slate-400 mt-1">June 2026 composite</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {[['Accuracy',90],['Professionalism',96],['Follow-Up',88],['Resolution',89]].map(([l,v]) => (
+              <div key={l as string} className={`rounded-lg p-2 ${statusBg(gs(v as number,90,true))}`}>
+                <div className={`text-lg font-bold ${statusText(gs(v as number,90,true))}`}>{v}</div>
+                <div className="text-[10px] text-slate-500">{l}</div>
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Score Trend</p>
+            <TinyLine values={[83,85,87,88,90,91]} color="#f43f5e" goal={90} />
+          </div>
+        </KPICard>
+
+      </div>
+
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest pt-1">Additional KPIs</div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-        {/* 11. First Response Time */}
-        <Section id="first-response" title="11 · First Response Time" icon={Clock} accent="bg-sky-50 border-sky-100 text-sky-800">
+        <KPICard title="11 · First Response Time" icon={Clock} accent="bg-sky-50 border-sky-100 text-sky-800">
           <div className="flex items-start gap-4 mb-3">
             <div className="relative flex-shrink-0">
-              <Gauge pct={firstResponse.slaCompliance} color={pctColor(firstResponse.slaCompliance, 90, true)} size={64} />
+              <Gauge pct={KPI_SUMMARY.firstResponseSla} color={pctColor(KPI_SUMMARY.firstResponseSla,90,true)} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold text-slate-700">{firstResponse.slaCompliance}%</span>
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.firstResponseSla}%</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 flex-1">
-              <Tile label="Avg Response" value={`${firstResponse.avgHours}h`} status={goalStatus(firstResponse.avgHours, firstResponse.goal, false)} />
-              <Tile label="SLA Compliance" value={`${firstResponse.slaCompliance}%`} status={goalStatus(firstResponse.slaCompliance, 90, true)} />
+              <Tile label="Avg Response"    value={`${KPI_SUMMARY.firstResponseAvg}h`} status={gs(KPI_SUMMARY.firstResponseAvg,4,false)} />
+              <Tile label="SLA Compliance"  value={`${KPI_SUMMARY.firstResponseSla}%`} status={gs(KPI_SUMMARY.firstResponseSla,90,true)} />
             </div>
           </div>
-          <GoalBadge passes={firstResponse.avgHours <= firstResponse.goal} label={`Goal: <${firstResponse.goal}h`} />
-          <div className="mt-3">
-            <LineChart data={firstResponseTrend} height={44} color="#0ea5e9" goalValue={4} />
-          </div>
-        </Section>
+          <GoalBadge passes={KPI_SUMMARY.firstResponseAvg <= 4} label="Goal: <4h" />
+          <div className="mt-2"><TinyLine values={[5.8,5.2,4.7,4.1,3.6,3.2]} color="#0ea5e9" goal={4} /></div>
+        </KPICard>
 
-        {/* 12. Ticket Reopen Rate */}
-        <Section id="reopen" title="12 · Ticket Reopen Rate" icon={RefreshCw} accent="bg-amber-50 border-amber-100 text-amber-800">
+        <KPICard title="12 · Ticket Reopen Rate" icon={RefreshCw} accent="bg-amber-50 border-amber-100 text-amber-800">
           <div className="flex items-start gap-4 mb-3">
             <div className="relative flex-shrink-0">
-              <Gauge pct={reopenRate.pct} color={pctColor(reopenRate.pct, reopenRate.goal, false)} size={64} />
+              <Gauge pct={KPI_SUMMARY.reopenPct} color={pctColor(KPI_SUMMARY.reopenPct,5,false)} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold text-slate-700">{reopenRate.pct}%</span>
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.reopenPct}%</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 flex-1">
-              <Tile label="Closed"   value={reopenRate.closed}   status="neutral" />
-              <Tile label="Reopened" value={reopenRate.reopened} status={goalStatus(reopenRate.pct, reopenRate.goal, false)} />
+              <Tile label="Closed"   value={KPI_SUMMARY.closedCount} status="neutral" />
+              <Tile label="Reopened" value={KPI_SUMMARY.reopenCount} status="good" />
             </div>
           </div>
-          <GoalBadge passes={reopenRate.pct <= reopenRate.goal} label={`Goal: <${reopenRate.goal}%`} />
-          <div className="mt-3">
-            <LineChart data={reopenTrend} height={44} color="#f59e0b" goalValue={5} />
-          </div>
-        </Section>
+          <GoalBadge passes={KPI_SUMMARY.reopenPct <= 5} label="Goal: <5%" />
+          <div className="mt-2"><TinyLine values={[6.2,5.8,5.1,4.4,3.7,3.2]} color="#f59e0b" goal={5} /></div>
+        </KPICard>
 
-        {/* 13. Escalation Rate */}
-        <Section id="escalation-rate" title="13 · Escalation Rate" icon={AlertTriangle} accent="bg-red-50 border-red-100 text-red-800">
+        <KPICard title="13 · Escalation Rate" icon={AlertTriangle} accent="bg-red-50 border-red-100 text-red-800">
           <div className="flex items-start gap-4 mb-3">
             <div className="relative flex-shrink-0">
-              <Gauge pct={escalationRate.pct} color={pctColor(escalationRate.pct, escalationRate.goal, false)} size={64} />
+              <Gauge pct={KPI_SUMMARY.escalationPct} color={pctColor(KPI_SUMMARY.escalationPct,5,false)} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold text-slate-700">{escalationRate.pct}%</span>
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.escalationPct}%</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 flex-1">
-              <Tile label="Total Tickets" value={escalationRate.total}     status="neutral" />
-              <Tile label="Escalated"     value={escalationRate.escalated} status={goalStatus(escalationRate.pct, escalationRate.goal, false)} />
+              <Tile label="Total Tickets" value={KPI_SUMMARY.closedCount}      status="neutral" />
+              <Tile label="Escalated"     value={KPI_SUMMARY.escalationCount}  status="good" />
             </div>
           </div>
-          <GoalBadge passes={escalationRate.pct <= escalationRate.goal} label={`Goal: <${escalationRate.goal}%`} />
-          <div className="mt-3">
-            <LineChart data={escalationTrend} height={44} color="#ef4444" goalValue={5} />
-          </div>
-        </Section>
+          <GoalBadge passes={KPI_SUMMARY.escalationPct <= 5} label="Goal: <5%" />
+          <div className="mt-2"><TinyLine values={[7.2,6.8,5.9,5.3,4.6,4.0]} color="#ef4444" goal={5} /></div>
+        </KPICard>
 
-        {/* 14. Collection Recovery Rate */}
-        <Section id="collections" title="14 · Collection Recovery Rate" icon={DollarSign} accent="bg-green-50 border-green-100 text-green-800">
+        <KPICard title="14 · Collection Recovery Rate" icon={DollarSign} accent="bg-green-50 border-green-100 text-green-800">
           <div className="flex items-start gap-4 mb-3">
             <div className="relative flex-shrink-0">
-              <Gauge pct={collectionRecovery.pct} color={pctColor(collectionRecovery.pct, 70, true)} size={64} />
+              <Gauge pct={KPI_SUMMARY.recoveryPct} color={pctColor(KPI_SUMMARY.recoveryPct,70,true)} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold text-slate-700">{collectionRecovery.pct}%</span>
+                <span className="text-xs font-bold text-slate-800">{KPI_SUMMARY.recoveryPct}%</span>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 flex-1">
-              <Tile label="Delinquent Accts" value={collectionRecovery.delinquent} status="neutral" />
-              <Tile label="Recovered"        value={collectionRecovery.recovered}  status="good" />
-              <Tile label="Amount Recovered" value={`$${collectionRecovery.amountRecovered.toLocaleString()}`} status="good" />
-              <Tile label="Total Delinquent" value={`$${collectionRecovery.amountTotal.toLocaleString()}`} status="neutral" />
+              <Tile label="Delinquent"       value={KPI_SUMMARY.delinquentAccounts} status="neutral" />
+              <Tile label="Recovered"        value={KPI_SUMMARY.recoveredAccounts}  status="good" />
+              <Tile label="Amount Recovered" value={`$${KPI_SUMMARY.recoveredAmount.toLocaleString()}`} status="good" />
+              <Tile label="Recovery Rate"    value={`${KPI_SUMMARY.recoveryPct}%`} status="good" />
             </div>
           </div>
-          <div className="mt-3">
-            <LineChart data={collectionTrend} height={44} color="#22c55e" />
-          </div>
-        </Section>
+          <div className="mt-2"><TinyLine values={[58.3,61.7,65.2,68.4,71.9,75.0]} color="#22c55e" /></div>
+        </KPICard>
 
       </div>
 
-      {/* ─── MONTHLY SCORECARD ───────────────────────────────────────────────── */}
+      {/* ── Monthly Scorecard ── */}
       <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest pt-1">Monthly Scorecard</div>
 
-      <Section id="scorecard" title="Employee Performance Scorecard" icon={Award} accent="bg-slate-800 border-slate-700 text-white">
-        {/* Summary */}
+      <KPICard title="Employee Performance Scorecard" icon={Award} accent="bg-slate-800 border-slate-700 text-white">
         <div className="grid grid-cols-3 gap-3 mb-4">
           {[
-            { label: 'Jun Score',     value: latestScore.weighted, grade: latestScore.grade },
-            { label: 'Q2 Score',      value: quarterlyScore,       grade: quarterlyScore >= 95 ? 'A' : quarterlyScore >= 90 ? 'B' : quarterlyScore >= 80 ? 'C' : 'D' },
-            { label: 'YTD Score',     value: annualScore,          grade: annualScore >= 95 ? 'A' : annualScore >= 90 ? 'B' : annualScore >= 80 ? 'C' : 'D' },
-          ].map(({ label, value, grade }) => (
+            { label:'Jun Score', score:84, grade:'C' },
+            { label:'Q2 Score',  score:83, grade:'C' },
+            { label:'YTD Score', score:81, grade:'C' },
+          ].map(({ label, score, grade }) => (
             <div key={label} className="bg-slate-50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-slate-800">{value}</div>
-              <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ring-1 text-base font-bold mt-1 ${gradeColor(grade)}`}>{grade}</div>
+              <div className="text-2xl font-bold text-slate-800">{score}</div>
+              <div className="inline-flex items-center justify-center w-8 h-8 rounded-full ring-1 text-base font-bold mt-1"
+                style={{ color: gColor(grade), backgroundColor: gColor(grade)+'18', outlineColor: gColor(grade) }}>
+                {grade}
+              </div>
               <div className="text-xs text-slate-500 mt-1">{label}</div>
             </div>
           ))}
         </div>
 
-        {/* Grade legend */}
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {[['A','95-100'],['B','90-94'],['C','80-89'],['D','70-79'],['F','<70']].map(([g, r]) => (
-            <span key={g} className={`text-[11px] font-medium px-2 py-0.5 rounded ring-1 ${gradeColor(g)}`}>{g}: {r}</span>
-          ))}
-        </div>
-
-        {/* Weights reference */}
         <div className="bg-slate-50 rounded-lg p-3 mb-4">
           <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wide">Scorecard Weights</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
-            {[
-              ['CSAT', '20%'], ['Follow-Up Compliance', '20%'],
-              ['Resolution Time', '15%'], ['Collection Recovery', '15%'],
-              ['First Response', '10%'], ['Doc Accuracy', '10%'],
-              ['Escalation Rate', '5%'], ['Reopen Rate', '5%'],
-            ].map(([k, v]) => (
+            {[['CSAT','20%'],['Follow-Up Compliance','20%'],['Resolution Time','15%'],['Collection Recovery','15%'],['First Response','10%'],['Doc Accuracy','10%'],['Escalation Rate','5%'],['Reopen Rate','5%']].map(([k,v]) => (
               <div key={k} className="flex justify-between text-xs text-slate-600 bg-white rounded px-2 py-1 border border-slate-200">
                 <span>{k}</span><span className="font-semibold">{v}</span>
               </div>
@@ -551,31 +546,37 @@ export default function KPICenter() {
           </div>
         </div>
 
-        {/* Monthly history table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto mb-4">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                {['Month','CSAT','1st Resp.','Follow-Up','Resolution','Doc Acc.','Collections','Escal.','Reopen','Score','Grade'].map(h => (
+                {['Month','CSAT','1st Resp.','Follow-Up','Resolution','Doc','Collections','Escal.','Reopen','Score','Grade'].map(h => (
                   <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {[...scorecard].reverse().map(r => (
+              {[
+                {month:'Jun',csat:88,fr:86,fu:86,rt:85,doc:85,col:75,esc:84,ro:82,score:84,grade:'C'},
+                {month:'May',csat:86,fr:82,fu:85,rt:82,doc:84,col:72,esc:80,ro:79,score:83,grade:'C'},
+                {month:'Apr',csat:82,fr:76,fu:84,rt:78,doc:81,col:68,esc:76,ro:75,score:80,grade:'C'},
+                {month:'Mar',csat:79,fr:71,fu:82,rt:75,doc:79,col:65,esc:72,ro:71,score:77,grade:'F'},
+                {month:'Feb',csat:76,fr:65,fu:80,rt:72,doc:75,col:62,esc:68,ro:67,score:74,grade:'F'},
+                {month:'Jan',csat:74,fr:60,fu:78,rt:70,doc:72,col:58,esc:65,ro:63,score:71,grade:'F'},
+              ].map(r => (
                 <tr key={r.month} className="hover:bg-slate-50">
                   <td className="px-3 py-2 font-medium text-slate-700">{r.month}</td>
                   <td className="px-3 py-2 text-slate-600">{r.csat}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.firstResponse}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.followUpCompliance}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.resolutionTime}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.docAccuracy}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.collectionRecovery}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.escalationRate}</td>
-                  <td className="px-3 py-2 text-slate-600">{r.reopenRate}</td>
-                  <td className="px-3 py-2 font-bold text-slate-800">{r.weighted}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.fr}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.fu}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.rt}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.doc}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.col}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.esc}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.ro}</td>
+                  <td className="px-3 py-2 font-bold text-slate-800">{r.score}</td>
                   <td className="px-3 py-2">
-                    <span className={`font-bold text-sm ring-1 px-1.5 py-0.5 rounded ${gradeColor(r.grade)}`}>{r.grade}</span>
+                    <span className="font-bold text-sm px-1.5 py-0.5 rounded ring-1" style={{ color: gColor(r.grade), backgroundColor: gColor(r.grade)+'18' }}>{r.grade}</span>
                   </td>
                 </tr>
               ))}
@@ -583,12 +584,12 @@ export default function KPICenter() {
           </table>
         </div>
 
-        {/* Scorecard bar chart */}
-        <div className="mt-4">
-          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Weighted Score Trend</p>
-          <BarChart data={scorecard.map(s => ({ value: s.weighted }))} labels={scorecard.map(s => s.month)} height={64} color="#6366f1" />
+        <div>
+          <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Monthly Score Trend</p>
+          <TinyBar values={MONTHLY_SCORES.map(s => s.score)} color="#6366f1" />
+          <div className="flex justify-between mt-0.5">{MONTHLY.map(m => <span key={m} className="text-[9px] text-slate-400">{m}</span>)}</div>
         </div>
-      </Section>
+      </KPICard>
 
     </div>
   );
