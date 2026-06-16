@@ -16,6 +16,9 @@ const NAV = [
   { path: '/escalation',      label: 'Escalations',      icon: AlertTriangle },
   { path: '/notifications',   label: 'Notifications',    icon: Bell },
   { path: '/templates',       label: 'Templates',        icon: FileText },
+  { path: '/kpi',             label: 'Admin KPI Center', icon: BarChart2 },
+  { path: '/executive',       label: 'Executive Dashboard', icon: MonitorDot },
+  { path: '/testing',         label: 'Testing Center',   icon: FlaskConical },
 ];
 
 const ADMIN_NAV = [
