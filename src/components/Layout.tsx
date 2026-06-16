@@ -124,18 +124,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Admin toggle */}
-        <div className={`border-t border-slate-800 px-2 py-2 flex-shrink-0 ${collapsed ? 'flex justify-center' : ''}`}>
+        <div className={`border-t border-slate-700 px-2 py-2 flex-shrink-0 ${collapsed ? 'flex justify-center' : ''}`}>
           <button
             onClick={toggleAdmin}
-            title={collapsed ? (isAdmin ? 'Disable Admin' : 'Enable Admin') : undefined}
-            className={`${collapsed ? 'w-9 h-9 justify-center' : 'w-full px-2.5 py-1.5'} flex items-center gap-2 rounded-md text-xs font-medium transition-colors ${
+            title={collapsed ? (isAdmin ? 'Admin: ON — click to disable' : 'Admin: OFF — click to enable') : undefined}
+            className={`${collapsed ? 'w-10 h-10 justify-center' : 'w-full px-3 py-2'} flex items-center gap-2.5 rounded-md text-xs font-semibold transition-all ${
               isAdmin
-                ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30'
-                : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                ? 'bg-red-600 text-white hover:bg-red-700 shadow-sm'
+                : 'bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600'
             }`}
           >
-            <ShieldCheck size={14} className="flex-shrink-0" />
-            {!collapsed && <span>{isAdmin ? 'Admin: ON' : 'Admin: OFF'}</span>}
+            <ShieldCheck size={15} className="flex-shrink-0" />
+            {!collapsed && (
+              <span className="truncate">{isAdmin ? 'Admin: ON' : 'Admin: OFF'}</span>
+            )}
+            {!collapsed && isAdmin && (
+              <span className="ml-auto w-2 h-2 rounded-full bg-white/60 flex-shrink-0" />
+            )}
           </button>
         </div>
 
