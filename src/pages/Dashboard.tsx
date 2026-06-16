@@ -44,6 +44,11 @@ export default function Dashboard() {
   return (
     <div className="space-y-5 max-w-[1400px]">
 
+      {/* VERSION BANNER */}
+      <div className="bg-green-600 text-white font-bold text-center py-2 rounded-lg text-sm tracking-wide">
+        VERSION TEST - ADMIN UPDATE LIVE
+      </div>
+
       {/* Page title */}
       <div className="flex items-center justify-between">
         <div>
