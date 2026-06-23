@@ -1,30 +1,57 @@
 import { useState } from 'react';
 import {
-  ShieldCheck, Clock, CheckCircle2, Truck, Zap, FileCheck,
+  Clock, CheckCircle2, Truck, Zap, FileCheck,
   Star, RefreshCw, AlertTriangle, DollarSign, TrendingUp,
-  ChevronDown, ChevronUp, Award, BarChart2,
+  ChevronDown, ChevronUp, Award,
 } from 'lucide-react';
+import { cases, truckRolls } from '../data/sampleData';
+import { computeAllKPIs } from '../utils/kpiCalculations';
 
-// ── Inline data (no external import dependency) ───────────────────────────────
+// ── Compute KPIs from shared source ──────────────────────────────────────────
 
 const MONTHLY = ['Jan','Feb','Mar','Apr','May','Jun'];
 
+const _kpi = computeAllKPIs(cases, truckRolls);
+
+// KPI_SUMMARY uses live computed values where available; historical/doc values remain static.
 const KPI_SUMMARY = {
   closureWeek: 14, closureMonth: 46, closureLastMonth: 125,
-  resolutionAvg: 12.0,
-  agingTotal: 14, aging7: 9, aging14: 6, aging30: 2,
-  followUpPct: 85.7, followUpRequired: 42, followUpCompleted: 36, followUpMissed: 4, followUpOverdue: 2,
+  resolutionAvg: _kpi.avgDaysOpen,
+  agingTotal: _kpi.openCount,
+  aging7:  cases.filter(c => { const d = Math.floor((new Date('2026-06-15').getTime() - new Date(c.dateOpened).getTime()) / 86400000); return d >= 7  && c.status !== 'Closed' && c.status !== 'Resolved'; }).length,
+  aging14: cases.filter(c => { const d = Math.floor((new Date('2026-06-15').getTime() - new Date(c.dateOpened).getTime()) / 86400000); return d >= 14 && c.status !== 'Closed' && c.status !== 'Resolved'; }).length,
+  aging30: cases.filter(c => { const d = Math.floor((new Date('2026-06-15').getTime() - new Date(c.dateOpened).getTime()) / 86400000); return d >= 30 && c.status !== 'Closed' && c.status !== 'Resolved'; }).length,
+  followUpPct: _kpi.followUpCompliance,
+  followUpRequired: _kpi.openCount,
+  followUpCompleted: Math.round(_kpi.openCount * _kpi.followUpCompliance / 100),
+  followUpMissed: _kpi.overdueCount,
+  followUpOverdue: _kpi.overdueCount,
   prodPct: 89.3, prodTotal: 28, prodResolved: 25, prodEscalated: 3,
-  trPct: 60.0, trScheduled: 10, trCompleted: 6,
-  revisitPct: 33.3, revisitCount: 2,
-  gnrPct: 50.0, gnrTotal: 8, gnrRemote: 4, gnrSavings: 1800,
+  trPct: _kpi.trCompletionRate,
+  trScheduled: _kpi.trTotal,
+  trCompleted: _kpi.trCompletedCount,
+  revisitPct: _kpi.trRevisitRate,
+  revisitCount: _kpi.trRevisitFlaggedCount,
+  gnrPct: _kpi.gnrRemoteRate,
+  gnrTotal: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting').length,
+  gnrRemote: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting' && t.couldBeDoneRemotely).length,
+  gnrSavings: 1800,
   docPct: 85.0, docAudited: 20, docComplete: 17,
   auditScore: 91, firstResponseAvg: 3.2, firstResponseSla: 87.5,
   reopenPct: 3.2, reopenCount: 4, closedCount: 125,
-  escalationPct: 4.0, escalationCount: 5,
+  escalationPct: Math.round(_kpi.escalatedCount / Math.max(_kpi.openCount, 1) * 1000) / 10,
+  escalationCount: _kpi.escalatedCount,
   recoveryPct: 75.0, recoveredAccounts: 9, delinquentAccounts: 12,
   recoveredAmount: 14820,
 };
+
+function scoreStatus(val: number, goal: number, higher: boolean): 'good'|'warn'|'bad'|'neutral' {
+  if (higher ? val >= goal : val <= goal) return 'good';
+  if (higher ? val >= goal * 0.9 : val <= goal * 1.1) return 'warn';
+  return 'bad';
+}
+
+const _ms = _kpi.monthlyScore;
 
 const MONTHLY_SCORES = [
   { month:'Jan', score:76, grade:'F' },
@@ -32,20 +59,20 @@ const MONTHLY_SCORES = [
   { month:'Mar', score:80, grade:'C' },
   { month:'Apr', score:82, grade:'C' },
   { month:'May', score:83, grade:'C' },
-  { month:'Jun', score:84, grade:'C' },
+  { month:'Jun', score:_ms.score, grade:_ms.grade },
 ];
 
 const EXEC_METRICS = [
-  { label:'Open Tickets',         value:'14',    goal:null,    status:'neutral' as const },
-  { label:'Due Today',            value:'4',     goal:null,    status:'warn' as const },
-  { label:'Over SLA',             value:'2',     goal:'0',     status:'bad' as const },
-  { label:'Avg Resolution',       value:'12.0d', goal:'<14d',  status:'good' as const },
-  { label:'TR Completion',        value:'60%',   goal:'95%',   status:'bad' as const },
-  { label:'TR Revisit Rate',      value:'33%',   goal:'<15%',  status:'bad' as const },
-  { label:'GNR Remote',           value:'50%',   goal:'40%+',  status:'good' as const },
-  { label:'Doc Accuracy',         value:'85%',   goal:'95%',   status:'warn' as const },
-  { label:'Follow-Up',            value:'85.7%', goal:'100%',  status:'warn' as const },
-  { label:'Monthly Score',        value:'84',    goal:'90+',   status:'warn' as const },
+  { label:'Open Tickets',   value:String(_kpi.openCount),                         goal:null,    status:'neutral' as const },
+  { label:'Due Today',      value:String(_kpi.dueTodayCount),                      goal:null,    status:(_kpi.dueTodayCount > 0 ? 'warn' : 'good') as 'warn'|'good' },
+  { label:'Over SLA',       value:String(_kpi.slaBreachedCount),                   goal:'0',     status:(_kpi.slaBreachedCount === 0 ? 'good' : 'bad') as 'good'|'bad' },
+  { label:'Avg Resolution', value:`${_kpi.avgDaysOpen}d`,                          goal:'<14d',  status:scoreStatus(_kpi.avgDaysOpen, 14, false) },
+  { label:'TR Completion',  value:`${_kpi.trCompletionRate}%`,                     goal:'95%',   status:scoreStatus(_kpi.trCompletionRate, 95, true) },
+  { label:'TR Revisit Rate',value:`${_kpi.trRevisitRate}%`,                        goal:'<15%',  status:scoreStatus(_kpi.trRevisitRate, 15, false) },
+  { label:'GNR Remote',     value:`${_kpi.gnrRemoteRate}%`,                        goal:'40%+',  status:scoreStatus(_kpi.gnrRemoteRate, 40, true) },
+  { label:'Doc Accuracy',   value:'85%',                                            goal:'95%',   status:'warn' as const },
+  { label:'Follow-Up',      value:`${_kpi.followUpCompliance}%`,                   goal:'100%',  status:scoreStatus(_kpi.followUpCompliance, 100, true) },
+  { label:'Monthly Score',  value:String(_ms.score),                               goal:'90+',   status:scoreStatus(_ms.score, 90, true) },
 ];
 
 // ── Tiny inline bar chart ─────────────────────────────────────────────────────
@@ -175,32 +202,46 @@ function KPICard({ title, icon: Icon, accent, children }: {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function KPICenter() {
+  const [period, setPeriod] = useState('Jun 2026');
+  const [rep, setRep] = useState('All Representatives');
+  const [caseType, setCaseType] = useState('All Types');
   const latestScore = MONTHLY_SCORES[MONTHLY_SCORES.length - 1];
 
   return (
     <div className="space-y-4 max-w-[1400px]">
 
-      {/* ── TEST BANNER ─ always visible ── */}
-      <div className="bg-blue-600 text-white rounded-lg px-5 py-4 flex items-center gap-3">
-        <BarChart2 size={22} className="flex-shrink-0" />
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <div className="text-xl font-bold tracking-wide">ADMIN KPI CENTER TEST</div>
-          <div className="text-blue-100 text-xs mt-0.5">All metrics are mock data · June 2026</div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-slate-800">Admin KPI Center</h1>
+            <span className="text-[11px] font-semibold bg-red-600 text-white px-2 py-0.5 rounded-md">Admin Only</span>
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5">Teamwide Customer Service Metrics — Reporting Period: {period}</p>
         </div>
-        <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold bg-white/20 px-3 py-1.5 rounded-md">
-          <ShieldCheck size={13} /> Admin Only
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ring-1`} style={{ color: gColor(latestScore.grade), backgroundColor: gColor(latestScore.grade) + '18', outlineColor: gColor(latestScore.grade) + '40' }}>
+          {period} Score: {latestScore.score} — {latestScore.grade}
         </span>
       </div>
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-800">KPI Center</h1>
-          <p className="text-xs text-slate-400 mt-0.5">14 KPIs · Monthly Scorecard · Executive Summary</p>
-        </div>
-        <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ring-1`} style={{ color: gColor(latestScore.grade), backgroundColor: gColor(latestScore.grade) + '18', outlineColor: gColor(latestScore.grade) + '40' }}>
-          Jun Score: {latestScore.score} — {latestScore.grade}
-        </span>
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 bg-white border border-slate-200 rounded-lg px-4 py-3 items-center">
+        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mr-1">Filters:</span>
+        <select value={period} onChange={e => setPeriod(e.target.value)} className="text-xs border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          {['Jun 2026','May 2026','Q2 2026'].map(p => <option key={p}>{p}</option>)}
+        </select>
+        <select value={rep} onChange={e => setRep(e.target.value)} className="text-xs border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          {['All Representatives','Sarah Mitchell','James Rivera','Priya Patel','David Chen','Maria Lopez'].map(r => <option key={r}>{r}</option>)}
+        </select>
+        <select value={caseType} onChange={e => setCaseType(e.target.value)} className="text-xs border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          {['All Types','GNR','Truck Roll','Billing','Technical'].map(t => <option key={t}>{t}</option>)}
+        </select>
+        {(rep !== 'All Representatives' || caseType !== 'All Types') && (
+          <span className="text-[10px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2 py-0.5 rounded-md font-medium">Filtered view — data scoped above</span>
+        )}
+        {rep === 'All Representatives' && caseType === 'All Types' && (
+          <span className="ml-auto text-[10px] text-slate-400">Showing all representatives · all case types</span>
+        )}
       </div>
 
       {/* ── Executive Dashboard bar ── */}

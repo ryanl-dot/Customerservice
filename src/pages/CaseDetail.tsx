@@ -140,10 +140,11 @@ Last Note (${c.timeline[c.timeline.length - 1]?.date}):
           <div className={`rounded-lg border p-4 ${risk.level === 'Critical' ? 'bg-red-50 border-red-200' : risk.level === 'High' ? 'bg-orange-50 border-orange-200' : risk.level === 'Medium' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold text-slate-600 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                <ShieldAlert size={12} /> Risk Score
+                <ShieldAlert size={12} /> Calculated Risk
               </h2>
               <RiskBadge level={risk.level} score={risk.score} />
             </div>
+            <p className="text-[10px] text-slate-400 mb-1">Score is a weighted sum (not a percentage). Low &lt;20 · Medium 20–39 · High 40–69 · Critical 70+</p>
             <button
               onClick={() => setRiskVisible(!riskVisible)}
               className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"

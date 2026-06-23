@@ -179,7 +179,7 @@ export default function CustomerCases() {
                 <Th col="customerName" label="Customer" />
                 <Th col="caseType" label="Case Type" />
                 <Th col="priority" label="Priority" />
-                <Th col="riskScore" label="Risk" />
+                <Th col="riskScore" label="Calculated Risk" />
                 <Th col="status" label="Status" />
                 <Th col={null} label="Owner" />
                 <Th col="dateOpened" label="Days Open" />

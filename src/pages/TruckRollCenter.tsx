@@ -119,17 +119,20 @@ export default function TruckRollCenter() {
   const counts = statuses.reduce((acc, s) => ({ ...acc, [s]: truckRolls.filter(t => t.status === s).length }), {} as Record<string, number>);
 
   const missingCount = truckRolls.filter(t => !t.customerUpdated && t.status === 'Completed').length;
-  const revisitCount = truckRolls.filter(t => t.revisitRequired && t.status !== 'Closed').length;
+  // revisitStatusCount = records whose current status IS "Revisit Required"
+  const revisitStatusCount = truckRolls.filter(t => t.status === 'Revisit Required').length;
+  // revisitFlaggedCount = records where the revisitRequired boolean flag is true (identified as needing a revisit)
+  const revisitFlaggedCount = truckRolls.filter(t => t.revisitRequired).length;
 
   return (
     <div className="space-y-4 max-w-[1400px]">
       <div>
         <h1 className="text-lg font-semibold text-slate-800">Truck Roll Center</h1>
-        <p className="text-xs text-slate-400 mt-0.5">{truckRolls.length} total truck rolls</p>
+        <p className="text-xs text-slate-400 mt-0.5">Teamwide · {truckRolls.length} total truck rolls</p>
       </div>
 
       {/* Alerts */}
-      {(missingCount > 0 || revisitCount > 0) && (
+      {(missingCount > 0 || revisitStatusCount > 0 || revisitFlaggedCount > 0) && (
         <div className="flex flex-wrap gap-2">
           {missingCount > 0 && (
             <div className="flex items-center gap-2 bg-orange-50 ring-1 ring-orange-200 rounded-md px-3 py-2 text-xs text-orange-700">
@@ -137,10 +140,16 @@ export default function TruckRollCenter() {
               <span><strong>{missingCount}</strong> completed truck roll{missingCount > 1 ? 's' : ''} — customer not updated</span>
             </div>
           )}
-          {revisitCount > 0 && (
+          {revisitStatusCount > 0 && (
             <div className="flex items-center gap-2 bg-orange-50 ring-1 ring-orange-200 rounded-md px-3 py-2 text-xs text-orange-700">
               <AlertCircle size={13} className="flex-shrink-0" />
-              <span><strong>{revisitCount}</strong> truck roll{revisitCount > 1 ? 's' : ''} require a revisit</span>
+              <span><strong>{revisitStatusCount}</strong> truck roll{revisitStatusCount > 1 ? 's' : ''} currently in <strong>Revisit Required</strong> status</span>
+            </div>
+          )}
+          {revisitFlaggedCount > revisitStatusCount && (
+            <div className="flex items-center gap-2 bg-amber-50 ring-1 ring-amber-200 rounded-md px-3 py-2 text-xs text-amber-700">
+              <AlertCircle size={13} className="flex-shrink-0" />
+              <span><strong>{revisitFlaggedCount}</strong> truck roll{revisitFlaggedCount > 1 ? 's' : ''} identified as needing a revisit (revisit flag)</span>
             </div>
           )}
         </div>

@@ -10,24 +10,23 @@ import {
   buildDailySummary, computeRisk, isDueToday,
   daysOpen, daysSinceLastUpdate,
 } from '../utils/caseLogic';
+import { computeAllKPIs } from '../utils/kpiCalculations';
 
 export default function Dashboard() {
-  const openCases = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
+  const kpi = computeAllKPIs(cases, truckRolls);
   const summary = buildDailySummary(cases, truckRolls);
 
-  const avgDays = openCases.length
-    ? Math.round(openCases.reduce((s, c) => s + daysOpen(c), 0) / openCases.length)
-    : 0;
+  const openCases = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
 
   const topMetrics = [
-    { label: 'Open Cases',          value: summary.totalOpen,                 icon: FolderOpen,      color: 'text-blue-600',    bg: 'bg-blue-50',    link: '/cases' },
-    { label: 'Due Today',            value: summary.dueToday,                  icon: Calendar,        color: 'text-amber-600',   bg: 'bg-amber-50',   link: '/follow-up' },
-    { label: 'Overdue',              value: summary.overdueCases,              icon: AlertCircle,     color: 'text-red-600',     bg: 'bg-red-50',     link: '/follow-up' },
-    { label: 'Truck Rolls Scheduled',value: truckRolls.filter(t => t.status === 'Scheduled').length, icon: Truck, color: 'text-indigo-600', bg: 'bg-indigo-50', link: '/truck-roll' },
-    { label: 'Revisit Required',     value: openCases.filter(c => c.status === 'Revisit Required').length, icon: RefreshCw, color: 'text-orange-600', bg: 'bg-orange-50', link: '/truck-roll' },
-    { label: 'Waiting on Internal',  value: openCases.filter(c => c.status === 'Waiting on Internal Team').length, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50', link: '/internal-waiting' },
-    { label: 'High Priority',        value: openCases.filter(c => c.priority === 'High' || c.priority === 'Urgent').length, icon: Zap, color: 'text-red-600', bg: 'bg-red-50', link: '/cases' },
-    { label: 'Avg Days Open',        value: avgDays,                           icon: BarChart2,       color: 'text-teal-600',    bg: 'bg-teal-50',    link: '/cases' },
+    { label: 'Open Cases',           value: kpi.openCount,              icon: FolderOpen,  color: 'text-blue-600',    bg: 'bg-blue-50',    link: '/cases' },
+    { label: 'Due Today',             value: kpi.dueTodayCount,          icon: Calendar,    color: 'text-amber-600',   bg: 'bg-amber-50',   link: '/follow-up' },
+    { label: 'Overdue',               value: kpi.overdueCount,           icon: AlertCircle, color: 'text-red-600',     bg: 'bg-red-50',     link: '/follow-up' },
+    { label: 'Truck Rolls Scheduled', value: kpi.trScheduledCount,       icon: Truck,       color: 'text-indigo-600',  bg: 'bg-indigo-50',  link: '/truck-roll' },
+    { label: 'Revisit Required',      value: kpi.trInRevisitStatusCount, icon: RefreshCw,   color: 'text-orange-600',  bg: 'bg-orange-50',  link: '/truck-roll' },
+    { label: 'Waiting on Internal',   value: kpi.waitingInternalCount,   icon: Clock,       color: 'text-amber-600',   bg: 'bg-amber-50',   link: '/internal-waiting' },
+    { label: 'High Priority',         value: kpi.highPriorityCount,      icon: Zap,         color: 'text-red-600',     bg: 'bg-red-50',     link: '/cases' },
+    { label: 'Avg Days Open',         value: kpi.avgDaysOpen,            icon: BarChart2,   color: 'text-teal-600',    bg: 'bg-teal-50',    link: '/cases' },
   ];
 
   const rankedByRisk = openCases
@@ -44,16 +43,15 @@ export default function Dashboard() {
   return (
     <div className="space-y-5 max-w-[1400px]">
 
-      {/* VERSION BANNER */}
-      <div className="bg-green-600 text-white font-bold text-center py-2 rounded-lg text-sm tracking-wide">
-        VERSION TEST - ADMIN UPDATE LIVE
-      </div>
+      {import.meta.env.DEV && (
+        <span className="inline-flex items-center text-[10px] font-semibold bg-amber-100 text-amber-700 ring-1 ring-amber-300 px-2 py-0.5 rounded-md">Development Environment</span>
+      )}
 
       {/* Page title */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-slate-800">UPDATED DASHBOARD LIVE TEST</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Monday, June 15, 2026</p>
+          <h1 className="text-lg font-semibold text-slate-800">Customer Service Dashboard</h1>
+          <p className="text-xs text-slate-400 mt-0.5">My Workload — Sarah Mitchell · Monday, June 15, 2026</p>
         </div>
         <div className="flex items-center gap-2">
           {summary.criticalRisk > 0 && (
