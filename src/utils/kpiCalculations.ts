@@ -3,6 +3,12 @@ import {
   daysOpen, isOverdue, isDueToday, hasNoRecentUpdate, computeRisk,
   needsCustomerUpdateAfterTruckRoll,
 } from './caseLogic';
+import type { TruckRollRecord } from '../data/truckRollData';
+import {
+  computeTruckRollKPIs, getTRCompletionRate as trCompletionRate,
+  getGNRRemoteRate as trGnrRemoteRate,
+} from '../data/truckRollData';
+import { canonicalTruckRolls } from '../data/truckRoll/source';
 
 // Single source of truth for all shared KPI calculations.
 // Every dashboard page imports from here — no page maintains its own formulas.
@@ -125,45 +131,10 @@ export function getStaleUpdateCases(cases: CustomerCase[]) {
 }
 
 // ── Truck Roll KPIs ───────────────────────────────────────────────────────────
-
-export function getTRScheduled(truckRolls: TruckRoll[]) {
-  return truckRolls.filter(t => t.status === 'Scheduled');
-}
-
-export function getTRCompleted(truckRolls: TruckRoll[]) {
-  return truckRolls.filter(t => t.status === 'Completed');
-}
-
-/** Records whose current status is "Revisit Required" */
-export function getTRInRevisitStatus(truckRolls: TruckRoll[]) {
-  return truckRolls.filter(t => t.status === 'Revisit Required');
-}
-
-/** Records where the revisitRequired boolean flag is true (identified as needing revisit) */
-export function getTRRevisitFlagged(truckRolls: TruckRoll[]) {
-  return truckRolls.filter(t => t.revisitRequired);
-}
-
-export function getTRCompletionRate(truckRolls: TruckRoll[]): number {
-  if (!truckRolls.length) return 0;
-  const completed = getTRCompleted(truckRolls).length;
-  return Math.round((completed / truckRolls.length) * 1000) / 10;
-}
-
-// Revisit rate = records with revisitRequired flag / total TRs
-export function getTRRevisitRate(truckRolls: TruckRoll[]): number {
-  if (!truckRolls.length) return 0;
-  const flagged = getTRRevisitFlagged(truckRolls).length;
-  return Math.round((flagged / truckRolls.length) * 1000) / 10;
-}
-
-// GNR cases that could have been resolved remotely / total GNR TRs
-export function getGNRRemoteResolutionRate(truckRolls: TruckRoll[]): number {
-  const gnr = truckRolls.filter(t => t.issueType === 'Gateway Not Reporting');
-  if (!gnr.length) return 0;
-  const remote = gnr.filter(t => t.couldBeDoneRemotely === true).length;
-  return Math.round((remote / gnr.length) * 1000) / 10;
-}
+// All operational truck-roll KPIs are computed from the CANONICAL TruckRollRecord[]
+// source (src/data/truckRoll/source.ts) via computeTruckRollKPIs, so every page
+// reports identical figures. The shared TR_VIEWS predicates back both the counts
+// here and the drill-down tables in the Truck Roll Center.
 
 // ── Monthly Score ─────────────────────────────────────────────────────────────
 
@@ -183,7 +154,7 @@ export interface MonthlyScore {
   components: { label: string; weight: number; pct: number; weighted: number }[];
 }
 
-export function getMonthlyScore(cases: CustomerCase[], truckRolls: TruckRoll[]): MonthlyScore {
+export function getMonthlyScore(cases: CustomerCase[], trRecords: TruckRollRecord[]): MonthlyScore {
   const open = getOpenCases(cases);
   const slaAdherence = open.length
     ? Math.round(((open.length - getSLABreachedCases(cases).length) / open.length) * 100)
@@ -196,8 +167,8 @@ export function getMonthlyScore(cases: CustomerCase[], truckRolls: TruckRoll[]):
 
   const components = [
     { label: 'Follow-Up Compliance', weight: 20, pct: getFollowUpCompliance(cases) },
-    { label: 'TR Completion Rate',   weight: 20, pct: getTRCompletionRate(truckRolls) },
-    { label: 'GNR Remote Rate',      weight: 15, pct: getGNRRemoteResolutionRate(truckRolls) },
+    { label: 'TR Completion Rate',   weight: 20, pct: trCompletionRate(trRecords) },
+    { label: 'GNR Remote Rate',      weight: 15, pct: trGnrRemoteRate(trRecords) },
     { label: 'SLA Adherence',        weight: 20, pct: slaAdherence },
     { label: 'Doc Accuracy',         weight: 15, pct: 85 }, // illustrative — no audit field in data
     { label: 'Escalation-Free Rate', weight:  5, pct: escalationFreeRate },
@@ -239,15 +210,30 @@ export interface AllKPIs {
   customersNotUpdatedCount: number;
 }
 
-export function computeAllKPIs(cases: CustomerCase[], truckRolls: TruckRoll[]): AllKPIs {
+/**
+ * Master KPI object.
+ * @param cases            the case dataset (case KPIs + risk).
+ * @param caseTruckRolls   legacy case-linked truck rolls — used ONLY for case risk
+ *                         scoring (joined by case.truckRollId) and the
+ *                         "customers not updated after truck roll" count.
+ * @param trRecords        the CANONICAL operational truck-roll dataset; drives every
+ *                         operational TR KPI. Defaults to canonicalTruckRolls so all
+ *                         pages share one source; tests can inject their own.
+ */
+export function computeAllKPIs(
+  cases: CustomerCase[],
+  caseTruckRolls: TruckRoll[],
+  trRecords: TruckRollRecord[] = canonicalTruckRolls,
+): AllKPIs {
+  const tr = computeTruckRollKPIs(trRecords);
   return {
     openCount:               getOpenCases(cases).length,
     dueTodayCount:           getDueTodayCases(cases).length,
     overdueCount:            getOverdueCases(cases).length,
     slaBreachedCount:        getSLABreachedCases(cases).length,
     highPriorityCount:       getHighPriorityCases(cases).length,
-    criticalRiskCount:       getCriticalRiskCases(cases, truckRolls).length,
-    highRiskCount:           getHighRiskCases(cases, truckRolls).length,
+    criticalRiskCount:       getCriticalRiskCases(cases, caseTruckRolls).length,
+    highRiskCount:           getHighRiskCases(cases, caseTruckRolls).length,
     waitingInternalCount:    getWaitingOnInternalCases(cases).length,
     escalatedCount:          getEscalatedCases(cases).length,
     escalatedAllCount:       getEscalatedCasesAll(cases).length,
@@ -256,15 +242,15 @@ export function computeAllKPIs(cases: CustomerCase[], truckRolls: TruckRoll[]): 
     staleUpdateCount:        getStaleUpdateCases(cases).length,
     avgDaysOpen:             getAvgDaysOpen(cases),
     followUpCompliance:      getFollowUpCompliance(cases),
-    trTotal:                 truckRolls.length,
-    trScheduledCount:        getTRScheduled(truckRolls).length,
-    trCompletedCount:        getTRCompleted(truckRolls).length,
-    trInRevisitStatusCount:  getTRInRevisitStatus(truckRolls).length,
-    trRevisitFlaggedCount:   getTRRevisitFlagged(truckRolls).length,
-    trCompletionRate:        getTRCompletionRate(truckRolls),
-    trRevisitRate:           getTRRevisitRate(truckRolls),
-    gnrRemoteRate:           getGNRRemoteResolutionRate(truckRolls),
-    monthlyScore:            getMonthlyScore(cases, truckRolls),
-    customersNotUpdatedCount: getCustomersNotUpdated(cases, truckRolls).length,
+    trTotal:                 tr.total,
+    trScheduledCount:        tr.scheduled,
+    trCompletedCount:        tr.completed,
+    trInRevisitStatusCount:  tr.inRevisitStatus,
+    trRevisitFlaggedCount:   tr.revisitFlagged,
+    trCompletionRate:        tr.completionRate,
+    trRevisitRate:           tr.revisitRate,
+    gnrRemoteRate:           tr.gnrRemoteRate,
+    monthlyScore:            getMonthlyScore(cases, trRecords),
+    customersNotUpdatedCount: getCustomersNotUpdated(cases, caseTruckRolls).length,
   };
 }

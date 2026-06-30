@@ -6,12 +6,15 @@ import {
 } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
 import { computeAllKPIs } from '../utils/kpiCalculations';
+import { canonicalTruckRolls } from '../data/truckRoll/source';
+import { trGnrRemoteResolved } from '../data/truckRollData';
 
 // ── Compute KPIs from shared source ──────────────────────────────────────────
 
 const MONTHLY = ['Jan','Feb','Mar','Apr','May','Jun'];
 
 const _kpi = computeAllKPIs(cases, truckRolls);
+const _gnr = canonicalTruckRolls.filter(t => t.issueCategory === 'Gateway Not Reporting');
 
 // KPI_SUMMARY uses live computed values where available; historical/doc values remain static.
 const KPI_SUMMARY = {
@@ -33,8 +36,8 @@ const KPI_SUMMARY = {
   revisitPct: _kpi.trRevisitRate,
   revisitCount: _kpi.trRevisitFlaggedCount,
   gnrPct: _kpi.gnrRemoteRate,
-  gnrTotal: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting').length,
-  gnrRemote: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting' && t.couldBeDoneRemotely).length,
+  gnrTotal: _gnr.length,
+  gnrRemote: _gnr.filter(trGnrRemoteResolved).length,
   gnrSavings: 1800,
   docPct: 85.0, docAudited: 20, docComplete: 17,
   auditScore: 91, firstResponseAvg: 3.2, firstResponseSla: 87.5,

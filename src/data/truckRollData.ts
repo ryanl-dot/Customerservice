@@ -355,6 +355,72 @@ export function issueCategoryToSlug(c: string): string {
   return c.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// ── Operational Truck-Roll KPIs (canonical) ─────────────────────────────────────
+// These run on the canonical TruckRollRecord[] so every page (Dashboard, Truck Roll
+// Center, KPI Center, Executive Dashboard) reports the SAME truck-roll numbers.
+
+/** A GNR ticket resolved remotely = completed with no on-site visit, or a visit flagged resolvedRemotely. */
+export function trGnrRemoteResolved(t: TruckRollRecord): boolean {
+  if (t.issueCategory !== 'Gateway Not Reporting' || t.status !== 'Completed') return false;
+  return t.numberOfVisits === 0 || t.visits.some(v => v.resolvedRemotely === true);
+}
+
+export function getTRCompletionRate(records: TruckRollRecord[]): number {
+  if (!records.length) return 0;
+  const completed = records.filter(t => t.status === 'Completed').length;
+  return Math.round((completed / records.length) * 1000) / 10;
+}
+
+export function getTRRevisitRate(records: TruckRollRecord[]): number {
+  if (!records.length) return 0;
+  const flagged = records.filter(t => t.revisitRequired).length;
+  return Math.round((flagged / records.length) * 1000) / 10;
+}
+
+export function getGNRRemoteRate(records: TruckRollRecord[]): number {
+  const gnr = records.filter(t => t.issueCategory === 'Gateway Not Reporting');
+  if (!gnr.length) return 0;
+  return Math.round((gnr.filter(trGnrRemoteResolved).length / gnr.length) * 1000) / 10;
+}
+
+export interface TruckRollKPIs {
+  total: number;
+  open: number;
+  needsScheduling: number;
+  scheduled: number;
+  awaitingParts: number;
+  activeRMA: number;
+  overdue: number;
+  critical: number;
+  completed: number;
+  completedThisMonth: number;
+  inRevisitStatus: number;
+  revisitFlagged: number;
+  completionRate: number;
+  revisitRate: number;
+  gnrRemoteRate: number;
+}
+
+export function computeTruckRollKPIs(records: TruckRollRecord[]): TruckRollKPIs {
+  return {
+    total:              records.length,
+    open:               records.filter(TR_VIEWS['open'].predicate).length,
+    needsScheduling:    records.filter(TR_VIEWS['needs-scheduling'].predicate).length,
+    scheduled:          records.filter(TR_VIEWS['scheduled'].predicate).length,
+    awaitingParts:      records.filter(TR_VIEWS['awaiting-parts'].predicate).length,
+    activeRMA:          records.filter(TR_VIEWS['active-rma'].predicate).length,
+    overdue:            records.filter(TR_VIEWS['overdue'].predicate).length,
+    critical:           records.filter(TR_VIEWS['critical'].predicate).length,
+    completed:          records.filter(t => t.status === 'Completed').length,
+    completedThisMonth: records.filter(TR_VIEWS['completed-this-month'].predicate).length,
+    inRevisitStatus:    records.filter(t => t.status === 'Return Visit Required').length,
+    revisitFlagged:     records.filter(t => t.revisitRequired).length,
+    completionRate:     getTRCompletionRate(records),
+    revisitRate:        getTRRevisitRate(records),
+    gnrRemoteRate:      getGNRRemoteRate(records),
+  };
+}
+
 // ── Mock Data ─────────────────────────────────────────────────────────────────
 
 export const truckRollRecords: TruckRollRecord[] = [
