@@ -17,6 +17,10 @@ dist-ssr
 .env.*
 !.env.example
 
+# Provisioned account store — contains password hashes; never commit
+server/.data/
+
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

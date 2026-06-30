@@ -1,25 +1,22 @@
-import type { Role } from '../../../shared/auth/roles';
 import { hashPassword } from './passwords';
+import { loadPersistedUsers, type StoredUser } from './userStore';
 
-// ── Development user store ───────────────────────────────────────────────────────
-// Integration-ready seam: in production this is replaced by a real identity provider
-// (Auth0 / Clerk / Cognito / Entra ID) or a database-backed user table. Here we seed
-// one user per role for local testing. Passwords are NEVER stored in plaintext — they
-// are hashed at startup from SEED_PASSWORD (env). No real customer accounts live here.
+export type { StoredUser };
 
-export interface StoredUser {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  passwordHash: string;
-}
+// ── User resolution ──────────────────────────────────────────────────────────────
+// Two sources, checked in order:
+//   1. PERSISTED users  — real accounts provisioned via `npm run create-admin`,
+//      stored in a git-ignored file as scrypt hashes (server/src/lib/userStore.ts).
+//   2. DEV SEED users   — one fixture per role for local role testing, hashed at
+//      startup from SEED_PASSWORD. Disabled when AUTH_DISABLE_SEED=1.
+// Persisted accounts take precedence on duplicate email. In production this whole
+// module is replaced by a real identity provider / database.
 
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? 'dev-password-change-me';
+const SEED_DISABLED = process.env.AUTH_DISABLE_SEED === '1';
 
-if (!process.env.SEED_PASSWORD) {
-  // Visible warning, no secret printed.
-  console.warn('[auth] SEED_PASSWORD not set — using insecure default dev password. Set SEED_PASSWORD before any shared/staging deployment.');
+if (!SEED_DISABLED && !process.env.SEED_PASSWORD) {
+  console.warn('[auth] SEED_PASSWORD not set — dev seed users use an insecure default. Set SEED_PASSWORD, or AUTH_DISABLE_SEED=1 to disable seed users entirely.');
 }
 
 const SEED: Array<Omit<StoredUser, 'passwordHash'>> = [
@@ -32,15 +29,23 @@ const SEED: Array<Omit<StoredUser, 'passwordHash'>> = [
   { id: 'u-dev',   name: 'Dev Tester',     email: 'dev@solarcs.test',       role: 'developer' },
 ];
 
-const users: StoredUser[] = SEED.map(u => ({ ...u, passwordHash: hashPassword(SEED_PASSWORD) }));
+const seedUsers: StoredUser[] = SEED_DISABLED
+  ? []
+  : SEED.map(u => ({ ...u, passwordHash: hashPassword(SEED_PASSWORD) }));
+
+// Persisted users are read fresh so a newly created admin works without restarting
+// (the file is tiny). Persisted entries are listed first → they win on email/id.
+function allUsers(): StoredUser[] {
+  return [...loadPersistedUsers(), ...seedUsers];
+}
 
 export function findUserByEmail(email: string): StoredUser | undefined {
   const norm = email.trim().toLowerCase();
-  return users.find(u => u.email.toLowerCase() === norm);
+  return allUsers().find(u => u.email.toLowerCase() === norm);
 }
 
 export function findUserById(id: string): StoredUser | undefined {
-  return users.find(u => u.id === id);
+  return allUsers().find(u => u.id === id);
 }
 
 export function publicUser(u: StoredUser) {
