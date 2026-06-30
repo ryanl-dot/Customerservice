@@ -43,9 +43,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const unread = notifications.filter(n => !n.read).length;
 
   function handleAdminToggle() {
-    const next = !isAdmin;
-    console.log('Admin mode toggled:', next);
-    setIsAdmin(next);
+    // NOTE: client-side demo toggle only — NOT an authentication or authorization
+    // boundary. Real role enforcement must happen server-side before production.
+    setIsAdmin(prev => !prev);
   }
 
   const currentPath = location.pathname;

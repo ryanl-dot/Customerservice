@@ -55,6 +55,7 @@ export default function ExecutiveDashboard() {
             <span className="text-[11px] font-semibold bg-red-600 text-white px-2 py-0.5 rounded-md">Admin Only</span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">Companywide Executive Metrics — Reporting Period: {period}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">All values computed from the shared KPI module. Monthly Score uses the same formula shown in the Admin KPI Center.</p>
         </div>
       </div>
 
@@ -150,7 +151,7 @@ export default function ExecutiveDashboard() {
         {[
           { label: 'Open Cases',    value: _kpi.openCount,           icon: Users,        color: 'text-blue-600',    bg: 'bg-blue-50' },
           { label: 'High Risk',     value: _kpi.highRiskCount,       icon: ShieldAlert,  color: 'text-red-600',     bg: 'bg-red-50' },
-          { label: 'Escalations',   value: _kpi.escalatedCount,      icon: AlertTriangle,color: 'text-orange-600',  bg: 'bg-orange-50' },
+          { label: 'Escalations',   value: _kpi.escalatedAllCount,   icon: AlertTriangle,color: 'text-orange-600',  bg: 'bg-orange-50' },
           { label: 'Monthly Score', value: _ms.score,                 icon: BarChart2,    color: 'text-indigo-600',  bg: 'bg-indigo-50' },
           { label: 'Avg Days Open', value: `${_kpi.avgDaysOpen}d`,   icon: TrendingUp,   color: 'text-teal-600',    bg: 'bg-teal-50' },
           { label: 'Due Today',     value: _kpi.dueTodayCount,       icon: Clock,        color: 'text-amber-600',   bg: 'bg-amber-50' },
