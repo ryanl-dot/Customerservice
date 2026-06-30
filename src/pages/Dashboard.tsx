@@ -5,6 +5,10 @@ import {
   Users, ShieldAlert, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
+import {
+  truckRollRecords,
+  trIsOpen, trIsOverdue, trIsCritical, trCompletedThisMonth, hasActiveRMA,
+} from '../data/truckRollData';
 import { PriorityBadge, StatusBadge, RiskBadge } from '../components/Badge';
 import {
   buildDailySummary, computeRisk, isDueToday,
@@ -15,6 +19,18 @@ import { computeAllKPIs } from '../utils/kpiCalculations';
 export default function Dashboard() {
   const kpi = computeAllKPIs(cases, truckRolls);
   const summary = buildDailySummary(cases, truckRolls);
+
+  // TR summary from new operational dataset
+  const trs = truckRollRecords;
+  const trOpen           = trs.filter(trIsOpen);
+  const trNeedsSched     = trOpen.filter(t => t.status === 'Awaiting Customer Scheduling' || t.status === 'New' || t.status === 'Customer Contact Required');
+  const trScheduled      = trOpen.filter(t => t.status === 'Scheduled');
+  const trAwaitParts     = trOpen.filter(t => t.status === 'Awaiting Parts');
+  const trActiveRMA      = trs.filter(hasActiveRMA);
+  const trRevisit        = trOpen.filter(t => t.status === 'Return Visit Required' || t.status === 'Revisit Scheduled');
+  const trOverdue        = trs.filter(trIsOverdue);
+  const trCritical       = trs.filter(trIsCritical);
+  const trCompletedMo    = trs.filter(trCompletedThisMonth);
 
   const openCases = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
 
@@ -126,6 +142,37 @@ export default function Dashboard() {
             </p>
           </div>
         )}
+      </div>
+
+      {/* ── Truck Roll Summary ────────────────────────────────────────── */}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Truck size={14} className="text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">Truck Roll Summary</span>
+            {trCritical.length > 0 && (
+              <span className="text-[10px] font-semibold text-red-700 bg-red-50 ring-1 ring-red-200 px-1.5 py-0.5 rounded-md">{trCritical.length} Critical</span>
+            )}
+          </div>
+          <Link to="/truck-roll" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">Truck Roll Center <ArrowRight size={11} /></Link>
+        </div>
+        <div className="grid grid-cols-4 xl:grid-cols-8 divide-x divide-slate-100">
+          {[
+            { label: 'Total Open',         value: trOpen.length,        link: '/truck-roll?tab=all',            alert: false },
+            { label: 'Needs Scheduling',   value: trNeedsSched.length,  link: '/truck-roll?tab=scheduling',     alert: trNeedsSched.length > 0 },
+            { label: 'Scheduled',          value: trScheduled.length,   link: '/truck-roll?tab=scheduling',     alert: false },
+            { label: 'Awaiting Parts',     value: trAwaitParts.length,  link: '/truck-roll?tab=scheduling',     alert: trAwaitParts.length > 0 },
+            { label: 'Active RMAs',        value: trActiveRMA.length,   link: '/truck-roll?tab=enphase',        alert: false },
+            { label: 'Revisit Required',   value: trRevisit.length,     link: '/truck-roll?tab=all',            alert: trRevisit.length > 0 },
+            { label: 'Overdue',            value: trOverdue.length,     link: '/truck-roll?tab=overview',       alert: trOverdue.length > 0 },
+            { label: 'Completed (Jun)',    value: trCompletedMo.length, link: '/truck-roll?tab=completed',      alert: false },
+          ].map(({ label, value, link, alert }) => (
+            <Link key={label} to={link} className="flex flex-col px-4 py-3 hover:bg-slate-50 transition-colors">
+              <div className={`text-xl font-bold ${alert && value > 0 ? 'text-orange-600' : 'text-slate-800'}`}>{value}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">{label}</div>
+            </Link>
+          ))}
+        </div>
       </div>
 
       {/* ── Two-column section ─────────────────────────────────────────── */}
