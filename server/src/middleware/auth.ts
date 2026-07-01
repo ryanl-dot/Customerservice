@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import type { Role } from '../../../shared/auth/roles';
 import type { PageKey } from '../../../shared/auth/permissions';
 import { canAccessPage } from '../../../shared/auth/permissions';
-import { getSession } from '../lib/sessions';
+import { getSession, touchSession } from '../lib/sessions';
 import { getUserById } from '../lib/users';
 import { sendError } from '../lib/errors';
 import { audit } from '../lib/audit';
@@ -25,8 +25,9 @@ declare global {
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-    const lookup = getSession(token);
+    const lookup = await getSession(token);
     if (lookup.status === 'expired') { sendError(res, 'session_expired'); return; }
+    if (lookup.status === 'revoked') { sendError(res, 'session_expired', 'Your session is no longer valid. Please sign in again.'); return; }
     if (lookup.status === 'missing') { sendError(res, 'unauthenticated'); return; }
 
     const user = await getUserById(lookup.session.userId);
@@ -38,6 +39,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
       sendError(res, 'unauthorized', 'This account is temporarily locked.'); return;
     }
+    // Sessions issued before the last password change are invalid (password change
+    // revokes existing sessions). Guards against stale cookies even without cleanup.
+    if (lookup.session.createdAt.getTime() < user.passwordChangedAt.getTime()) {
+      sendError(res, 'session_expired', 'Your session is no longer valid. Please sign in again.'); return;
+    }
+    void touchSession(lookup.session.token); // best-effort lastSeen update
     req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name };
     next();
   } catch {

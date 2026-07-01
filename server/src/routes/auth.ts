@@ -43,7 +43,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     return;
   }
 
-  const session = createSession(user.id);
+  const session = await createSession(user.id, { userAgent: req.get('user-agent') ?? undefined, ip: req.ip });
   await recordLoginSuccess(user.id);
   res.cookie(SESSION_COOKIE, session.token, cookieOptions);
   audit('login', { actorId: user.id, role: user.role, outcome: 'success', ip: req.ip });
@@ -51,20 +51,20 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   res.json(body);
 });
 
-authRouter.post('/logout', (req, res) => {
+authRouter.post('/logout', async (req, res) => {
   const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-  const lookup = getSession(token);
+  const lookup = await getSession(token);
   if (lookup.status === 'ok') {
     audit('logout', { actorId: lookup.session.userId, outcome: 'success', ip: req.ip });
   }
-  destroySession(token);
+  await destroySession(token); // server-side revocation
   res.clearCookie(SESSION_COOKIE, cookieOptions);
   res.json({ authenticated: false } satisfies SessionInfo);
 });
 
 authRouter.get('/session', async (req, res) => {
   const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-  const lookup = getSession(token);
+  const lookup = await getSession(token);
   if (lookup.status !== 'ok') {
     res.json({ authenticated: false } satisfies SessionInfo);
     return;
