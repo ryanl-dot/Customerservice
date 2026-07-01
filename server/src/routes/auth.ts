@@ -7,8 +7,14 @@ import { sendError } from '../lib/errors';
 import { audit } from '../lib/audit';
 import { isProduction } from '../lib/config';
 import { SESSION_COOKIE, loginLimiter } from '../middleware/auth';
+import { validateBody, z, emailField } from '../lib/validate';
 
 export const authRouter = Router();
+
+const loginSchema = z.object({
+  email: emailField,
+  password: z.string().min(1).max(200),
+}).strict();
 
 const cookieOptions = {
   httpOnly: true,                 // not readable by JS → XSS-resistant
@@ -18,12 +24,8 @@ const cookieOptions = {
   path: '/',
 };
 
-authRouter.post('/login', loginLimiter, async (req, res) => {
-  const { email, password } = (req.body ?? {}) as { email?: unknown; password?: unknown };
-  if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
-    sendError(res, 'invalid_request', 'Email and password are required.');
-    return;
-  }
+authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, res) => {
+  const { email, password } = req.body as { email: string; password: string };
   const user = await getUserByEmail(email);
   // Generic failure message — never reveal whether the email exists.
   if (!user || !verifyPassword(password, user.passwordHash)) {

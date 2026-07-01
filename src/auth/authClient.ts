@@ -17,6 +17,17 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
+// Read the non-httpOnly CSRF cookie the server issued, to echo it on state-changing
+// requests (double-submit-cookie pattern).
+function csrfToken(): string {
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+function csrfHeaders(): Record<string, string> {
+  return { 'x-csrf-token': csrfToken() };
+}
+
 export async function fetchSession(): Promise<SessionInfo> {
   const res = await fetch('/api/auth/session', { credentials: 'include' });
   if (!res.ok) return { authenticated: false };
@@ -26,7 +37,7 @@ export async function fetchSession(): Promise<SessionInfo> {
 export async function login(email: string, password: string): Promise<SessionInfo> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     credentials: 'include',
     body: JSON.stringify({ email, password }),
   });
@@ -35,5 +46,5 @@ export async function login(email: string, password: string): Promise<SessionInf
 }
 
 export async function logout(): Promise<void> {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { ...csrfHeaders() } });
 }
