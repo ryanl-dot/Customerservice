@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { generate } from 'otplib';
 import { HAS_DB, resetDb } from './helpers/testDb';
+import { getPrisma } from '../server/src/db/client';
 
 // Full-stack HTTP tests for mandatory MFA + password-reset, against the test Postgres.
 process.env.APP_MODE = 'development';
@@ -103,6 +104,60 @@ describe.skipIf(!HAS_DB)('MFA enforcement + password reset (HTTP, DB)', () => {
     const { token } = await csrf(agent);
     const login = await agent.post('/api/auth/login').set('x-csrf-token', token).send({ email: 'cs@example.com', password: 'strong-password-3' });
     expect(login.body.mfaEnrollmentRequired).toBe(false);
+  });
+
+  it('invalid credentials return unauthenticated, NOT mfa_required (no user enumeration)', async () => {
+    await makeUser('administrator', 'admin3@example.com', 'strong-password-4');
+    const agent = request.agent(app);
+    const { token } = await csrf(agent);
+    // Wrong password for an existing MFA-eligible account.
+    const wrongPw = await agent.post('/api/auth/login').set('x-csrf-token', token)
+      .send({ email: 'admin3@example.com', password: 'WRONG-password' });
+    expect(wrongPw.status).toBe(401);
+    expect(wrongPw.body.error.code).toBe('unauthenticated');
+    expect(wrongPw.body.error.code).not.toBe('mfa_required');
+    // Unknown email → same generic unauthenticated.
+    const unknown = await agent.post('/api/auth/login').set('x-csrf-token', token)
+      .send({ email: 'nobody@example.com', password: 'whatever-long-enough' });
+    expect(unknown.status).toBe(401);
+    expect(unknown.body.error.code).toBe('unauthenticated');
+  });
+
+  it('passwords and TOTP codes are never persisted (hashed only) or logged', async () => {
+    const PW = 'never-logged-pw-778899';
+    await makeUser('administrator', 'nolog@example.com', PW);
+    const agent = request.agent(app);
+    const { token } = await csrf(agent);
+
+    // Enroll MFA so we exercise a login with a real code, then capture console output.
+    await agent.post('/api/auth/login').set('x-csrf-token', token).send({ email: 'nolog@example.com', password: PW });
+    const enroll = await agent.post('/api/auth/mfa/enroll').set('x-csrf-token', token).send({});
+    await agent.post('/api/auth/mfa/verify').set('x-csrf-token', token).send({ code: await generate({ strategy: 'totp', secret: enroll.body.secret }) });
+
+    const CODE = await generate({ strategy: 'totp', secret: enroll.body.secret });
+    const logs: string[] = [];
+    const spyLog = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logs.push(a.map(String).join(' ')); });
+    const spyErr = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { logs.push(a.map(String).join(' ')); });
+
+    const agent2 = request.agent(app);
+    const c2 = await csrf(agent2);
+    await agent2.post('/api/auth/login').set('x-csrf-token', c2.token)
+      .send({ email: 'nolog@example.com', password: PW, code: CODE });
+
+    spyLog.mockRestore(); spyErr.mockRestore();
+
+    // Console (audit/error lines) must never contain the password or the TOTP code.
+    const joined = logs.join('\n');
+    expect(joined).not.toContain(PW);
+    expect(joined).not.toContain(CODE);
+
+    // The stored password is a scrypt hash, not the plaintext.
+    const row = await getPrisma().user.findFirst({ where: { email: 'nolog@example.com' } });
+    expect(row?.passwordHash).not.toContain(PW);
+    // Audit rows never contain the password or code either.
+    const audits = JSON.stringify(await getPrisma().auditEvent.findMany({}));
+    expect(audits).not.toContain(PW);
+    expect(audits).not.toContain(CODE);
   });
 
   it('password reset: generic response, email captured, token single-use, sessions revoked', async () => {

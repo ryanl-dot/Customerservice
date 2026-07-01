@@ -52,6 +52,24 @@ describe('Login MFA flow', () => {
     expect(login).toHaveBeenLastCalledWith('admin@solarcs.test', 'a-strong-password', '123456');
   });
 
+  it('never writes the password or TOTP code to localStorage/sessionStorage', async () => {
+    localStorage.clear(); sessionStorage.clear();
+    const login = vi.fn<AuthState['login']>()
+      .mockResolvedValueOnce({ status: 'mfa_required' })
+      .mockResolvedValueOnce({ status: 'ok' });
+    renderLogin(login);
+    submitCredentials();
+    await waitFor(() => screen.getByLabelText('Authentication code'));
+    fireEvent.change(screen.getByLabelText('Authentication code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /verify/i }));
+    await waitFor(() => expect(login).toHaveBeenCalledTimes(2));
+    const dumped = JSON.stringify(localStorage) + JSON.stringify(sessionStorage);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(dumped).not.toContain('a-strong-password');
+    expect(dumped).not.toContain('123456');
+  });
+
   it('an incorrect/expired code shows a generic error and stays on the MFA step', async () => {
     const login = vi.fn<AuthState['login']>()
       .mockResolvedValueOnce({ status: 'mfa_required' })
