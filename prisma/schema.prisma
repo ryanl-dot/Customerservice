@@ -43,10 +43,30 @@ model User {
   lockedUntil       DateTime?
   passwordChangedAt DateTime      @default(now())
   mfaEnabled        Boolean       @default(false)
+  // TOTP shared secret (base32). Present only once MFA is enrolled. Never returned
+  // to the frontend. Nullable until enrollment.
+  mfaSecret         String?
 
-  sessions Session[]
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  // SHA-256 hash of the single-use token. The raw token is emailed to the user and
+  // never stored or logged. High-entropy random → plain hash is sufficient.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model AuditEvent {

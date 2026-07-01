@@ -5,9 +5,13 @@ import { verifyPassword } from '../lib/passwords';
 import { createSession, destroySession, getSession, sessionExpiryIso } from '../lib/sessions';
 import { sendError } from '../lib/errors';
 import { reqAudit, emailAuditId } from '../lib/audit';
-import { isProduction } from '../lib/config';
+import { isProduction, userStore } from '../lib/config';
+import { revokeAllForUser } from '../lib/sessions';
+import { changePassword } from '../db/repositories/users';
+import { createResetToken, consumeResetToken } from '../db/repositories/passwordReset';
+import { hashPassword } from '../lib/passwords';
 import { SESSION_COOKIE, loginLimiter } from '../middleware/auth';
-import { validateBody, z, emailField } from '../lib/validate';
+import { validateBody, z, emailField, passwordField, tokenField } from '../lib/validate';
 
 export const authRouter = Router();
 
@@ -15,6 +19,14 @@ const loginSchema = z.object({
   email: emailField,
   password: z.string().min(1).max(200),
 }).strict();
+
+const requestResetSchema = z.object({ email: emailField }).strict();
+const resetSchema = z.object({ token: tokenField, newPassword: passwordField }).strict();
+
+// Reset flows require the database store (token table). In JSON dev mode they respond
+// generically without touching the DB.
+function dbMode(): boolean { return isProduction() || userStore() === 'db'; }
+const GENERIC_RESET_MSG = 'If an account exists for that email, a reset link has been sent.';
 
 const cookieOptions = {
   httpOnly: true,                 // not readable by JS → XSS-resistant
@@ -78,4 +90,35 @@ authRouter.get('/session', async (req, res) => {
   }
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(lookup.session) };
   res.json(body);
+});
+
+// Request a password reset. ALWAYS responds generically (never reveals whether the
+// email exists). When the user exists, a single-use hashed token is created; the raw
+// token is emailed by the (not-yet-connected) mail transport — it is never returned
+// in the response or logged. Rate-limited to blunt enumeration/abuse.
+authRouter.post('/request-password-reset', loginLimiter, validateBody(requestResetSchema), async (req, res) => {
+  const { email } = req.body as { email: string };
+  if (dbMode()) {
+    const user = await getUserByEmail(email);
+    if (user) {
+      await createResetToken(user.id);
+      // TODO(mail): send rawToken to the user's email via the mail transport.
+      // Intentionally NOT returned/logged — no dev shortcut that could leak in prod.
+    }
+  }
+  res.json({ ok: true, message: GENERIC_RESET_MSG });
+});
+
+// Complete a password reset with a single-use token. Generic errors; on success the
+// password is changed (bumping passwordChangedAt) and ALL of the user's sessions are
+// revoked.
+authRouter.post('/reset-password', loginLimiter, validateBody(resetSchema), async (req, res) => {
+  const { token, newPassword } = req.body as { token: string; newPassword: string };
+  if (!dbMode()) { sendError(res, 'invalid_request', 'Invalid or expired reset token.'); return; }
+  const lookup = await consumeResetToken(token);
+  if (!lookup) { sendError(res, 'invalid_request', 'Invalid or expired reset token.'); return; }
+  await changePassword(lookup.userId, hashPassword(newPassword));
+  await revokeAllForUser(lookup.userId);
+  reqAudit(req, 'password_changed', { actorId: lookup.userId, targetType: 'user', targetId: lookup.userId, result: 'success' });
+  res.json({ ok: true });
 });
