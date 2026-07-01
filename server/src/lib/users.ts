@@ -1,22 +1,42 @@
 import { hashPassword } from './passwords';
 import { loadPersistedUsers, type StoredUser } from './userStore';
+import { userStore, seedUsersEnabled, isProduction } from './config';
+import type { Role } from '../../../shared/auth/roles';
+import * as dbUsers from '../db/repositories/users';
+import type { AccountStatus } from '../db/repositories/users';
 
 export type { StoredUser };
 
-// ── User resolution ──────────────────────────────────────────────────────────────
-// Two sources, checked in order:
-//   1. PERSISTED users  — real accounts provisioned via `npm run create-admin`,
-//      stored in a git-ignored file as scrypt hashes (server/src/lib/userStore.ts).
-//   2. DEV SEED users   — one fixture per role for local role testing, hashed at
-//      startup from SEED_PASSWORD. Disabled when AUTH_DISABLE_SEED=1.
-// Persisted accounts take precedence on duplicate email. In production this whole
-// module is replaced by a real identity provider / database.
+// ── Unified auth record ──────────────────────────────────────────────────────────
+// Shape the auth layer needs, regardless of backing store (DB or JSON). Password
+// hash is included for server-side verification only; publicUser() strips it before
+// anything reaches the frontend.
+export interface AuthUserRecord {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: Role;
+  accountStatus: AccountStatus;
+  lockedUntil: Date | null;
+  passwordChangedAt: Date;
+  mfaEnabled: boolean;
+}
 
+function fromDb(u: dbUsers.DbUser): AuthUserRecord {
+  return {
+    id: u.id, name: u.name, email: u.email, passwordHash: u.passwordHash, role: u.role,
+    accountStatus: u.accountStatus, lockedUntil: u.lockedUntil,
+    passwordChangedAt: u.passwordChangedAt, mfaEnabled: u.mfaEnabled,
+  };
+}
+
+// ── JSON / seed store (development only) ───────────────────────────────────────────
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? 'dev-password-change-me';
-const SEED_DISABLED = process.env.AUTH_DISABLE_SEED === '1';
+const SEED_DISABLED = !seedUsersEnabled();
 
-if (!SEED_DISABLED && !process.env.SEED_PASSWORD) {
-  console.warn('[auth] SEED_PASSWORD not set — dev seed users use an insecure default. Set SEED_PASSWORD, or AUTH_DISABLE_SEED=1 to disable seed users entirely.');
+if (userStore() === 'json' && !SEED_DISABLED && !process.env.SEED_PASSWORD) {
+  console.warn('[auth] SEED_PASSWORD not set — dev seed users use an insecure default. Set SEED_PASSWORD, or AUTH_DISABLE_SEED=1.');
 }
 
 const SEED: Array<Omit<StoredUser, 'passwordHash'>> = [
@@ -29,25 +49,50 @@ const SEED: Array<Omit<StoredUser, 'passwordHash'>> = [
   { id: 'u-dev',   name: 'Dev Tester',     email: 'dev@solarcs.test',       role: 'developer' },
 ];
 
-const seedUsers: StoredUser[] = SEED_DISABLED
-  ? []
-  : SEED.map(u => ({ ...u, passwordHash: hashPassword(SEED_PASSWORD) }));
+const seedUsers: StoredUser[] = SEED_DISABLED ? [] : SEED.map(u => ({ ...u, passwordHash: hashPassword(SEED_PASSWORD) }));
 
-// Persisted users are read fresh so a newly created admin works without restarting
-// (the file is tiny). Persisted entries are listed first → they win on email/id.
-function allUsers(): StoredUser[] {
-  return [...loadPersistedUsers(), ...seedUsers];
+function jsonAll(): AuthUserRecord[] {
+  const stored = [...loadPersistedUsers(), ...seedUsers];
+  return stored.map(u => ({
+    id: u.id, name: u.name, email: u.email, passwordHash: u.passwordHash, role: u.role,
+    accountStatus: 'active' as AccountStatus, lockedUntil: null,
+    passwordChangedAt: new Date(0), mfaEnabled: false,
+  }));
 }
 
-export function findUserByEmail(email: string): StoredUser | undefined {
+// ── Store selection ────────────────────────────────────────────────────────────────
+// Production is guaranteed to be 'db' by startup env validation; this is a defensive
+// second check so DB-only code paths never silently read the JSON store in production.
+function shouldUseDb(): boolean {
+  if (isProduction()) return true;
+  return userStore() === 'db';
+}
+
+export async function getUserByEmail(email: string): Promise<AuthUserRecord | null> {
+  if (shouldUseDb()) {
+    const u = await dbUsers.findByEmail(email);
+    return u ? fromDb(u) : null;
+  }
   const norm = email.trim().toLowerCase();
-  return allUsers().find(u => u.email.toLowerCase() === norm);
+  return jsonAll().find(u => u.email.toLowerCase() === norm) ?? null;
 }
 
-export function findUserById(id: string): StoredUser | undefined {
-  return allUsers().find(u => u.id === id);
+export async function getUserById(id: string): Promise<AuthUserRecord | null> {
+  if (shouldUseDb()) {
+    const u = await dbUsers.findById(id);
+    return u ? fromDb(u) : null;
+  }
+  return jsonAll().find(u => u.id === id) ?? null;
 }
 
-export function publicUser(u: StoredUser) {
+export async function recordLoginSuccess(id: string): Promise<void> {
+  if (shouldUseDb()) await dbUsers.recordLoginSuccess(id);
+}
+
+export async function recordLoginFailure(id: string): Promise<void> {
+  if (shouldUseDb()) await dbUsers.recordLoginFailure(id);
+}
+
+export function publicUser(u: Pick<AuthUserRecord, 'id' | 'name' | 'email' | 'role'>) {
   return { id: u.id, name: u.name, email: u.email, role: u.role };
 }

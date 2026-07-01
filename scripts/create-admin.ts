@@ -4,19 +4,26 @@
  *   npm run create-admin
  *
  * Prompts (interactively) for name, email, password, and confirmation; hashes the
- * password with scrypt on the server side; and writes the account to the git-ignored
- * persistent store. The password and its hash are NEVER printed. No default
+ * password with scrypt on the server side; and writes the account to the configured
+ * store — the PostgreSQL database when USER_STORE=db, otherwise the git-ignored JSON
+ * file (development only). The password and its hash are NEVER printed. No default
  * credentials are invented — you choose your own password privately.
+ *
+ * Production safety: the JSON store is refused in production; only the database is
+ * allowed. Seed/dev accounts are never written to the database.
  */
 import * as readline from 'node:readline/promises';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from '../server/src/lib/passwords';
-import { addPersistedUser, emailExists, storePath } from '../server/src/lib/userStore';
-import { findUserByEmail } from '../server/src/lib/users';
+import { addPersistedUser, emailExists as jsonEmailExists, storePath } from '../server/src/lib/userStore';
+import { userStore, isProduction } from '../server/src/lib/config';
+import * as dbUsers from '../server/src/db/repositories/users';
+import { disconnectPrisma } from '../server/src/db/client';
 
 const MIN_PASSWORD = 12;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isTTY = Boolean(process.stdin.isTTY);
+const STORE = userStore(); // 'db' | 'json'
 
 let rl: readline.Interface | null = null;
 let pipedLines: string[] = [];
@@ -56,8 +63,13 @@ async function askHidden(query: string): Promise<string> {
 }
 
 async function main() {
+  // Fail closed: never allow the JSON store in production.
+  if (isProduction() && STORE === 'json') {
+    throw new Error('Refusing to create a JSON-store admin in production. Set USER_STORE=db and DATABASE_URL.');
+  }
+
   await init();
-  console.log('\nSolarCS — create administrator account\n');
+  console.log(`\nSolarCS — create administrator account (store: ${STORE})\n`);
 
   const name = await ask('Administrator name: ');
   if (!name) throw new Error('Name is required.');
@@ -65,9 +77,10 @@ async function main() {
   const email = (await ask('Administrator email: ')).toLowerCase();
   if (!EMAIL_RE.test(email)) throw new Error('Please enter a valid email address.');
 
-  // Duplicate prevention — across persisted accounts AND seed/dev users.
-  if (emailExists(email) || findUserByEmail(email)) {
-    throw new Error(`An account with ${email} already exists. Choose a different email.`);
+  if (STORE === 'db') {
+    if (await dbUsers.emailExists(email)) throw new Error(`An account with ${email} already exists. Choose a different email.`);
+  } else {
+    if (jsonEmailExists(email)) throw new Error(`An account with ${email} already exists. Choose a different email.`);
   }
 
   const password = await askHidden('Password (min 12 chars, input hidden): ');
@@ -76,23 +89,24 @@ async function main() {
   const confirm = await askHidden('Confirm password: ');
   if (password !== confirm) throw new Error('Passwords do not match.');
 
-  addPersistedUser({
-    id: `admin-${randomUUID()}`,
-    name,
-    email,
-    role: 'administrator',
-    passwordHash: hashPassword(password), // scrypt; plaintext is never stored or logged
-  });
+  const passwordHash = hashPassword(password); // scrypt; plaintext is never stored or logged
 
-  console.log(`\n✓ Administrator "${name}" <${email}> created.`);
-  console.log(`  Stored in: ${storePath()}`);
+  if (STORE === 'db') {
+    const created = await dbUsers.createUser({ name, email, role: 'administrator', passwordHash });
+    console.log(`\n✓ Administrator "${name}" <${email}> created in the database (id ${created.id}).`);
+  } else {
+    addPersistedUser({ id: `admin-${randomUUID()}`, name, email, role: 'administrator', passwordHash });
+    console.log(`\n✓ Administrator "${name}" <${email}> created.`);
+    console.log(`  Stored in: ${storePath()}`);
+  }
   console.log('  (password hash written; plaintext was never displayed or saved)\n');
 }
 
 main()
-  .then(() => { rl?.close(); process.exit(0); })
-  .catch((err: unknown) => {
+  .then(async () => { rl?.close(); await disconnectPrisma().catch(() => {}); process.exit(0); })
+  .catch(async (err: unknown) => {
     rl?.close();
+    await disconnectPrisma().catch(() => {});
     console.error(`\n✗ ${err instanceof Error ? err.message : 'Failed to create administrator.'}\n`);
     process.exit(1);
   });

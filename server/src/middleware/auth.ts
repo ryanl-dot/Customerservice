@@ -4,7 +4,7 @@ import type { Role } from '../../../shared/auth/roles';
 import type { PageKey } from '../../../shared/auth/permissions';
 import { canAccessPage } from '../../../shared/auth/permissions';
 import { getSession } from '../lib/sessions';
-import { findUserById } from '../lib/users';
+import { getUserById } from '../lib/users';
 import { sendError } from '../lib/errors';
 import { audit } from '../lib/audit';
 
@@ -20,17 +20,29 @@ declare global {
   }
 }
 
-// Resolve the signed session cookie → req.auth. Distinguishes expired from missing.
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
-  const lookup = getSession(token);
-  if (lookup.status === 'expired') { sendError(res, 'session_expired'); return; }
-  if (lookup.status === 'missing') { sendError(res, 'unauthenticated'); return; }
+// Resolve the signed session cookie → req.auth. Distinguishes expired from missing,
+// and denies disabled or locked accounts even with a valid session.
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
+    const lookup = getSession(token);
+    if (lookup.status === 'expired') { sendError(res, 'session_expired'); return; }
+    if (lookup.status === 'missing') { sendError(res, 'unauthenticated'); return; }
 
-  const user = findUserById(lookup.session.userId);
-  if (!user) { sendError(res, 'unauthenticated'); return; }
-  req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name };
-  next();
+    const user = await getUserById(lookup.session.userId);
+    if (!user) { sendError(res, 'unauthenticated'); return; }
+    if (user.accountStatus === 'disabled') {
+      audit('unauthorized_route', { actorId: user.id, role: user.role, target: 'account:disabled', outcome: 'denied', ip: req.ip });
+      sendError(res, 'unauthorized', 'This account has been disabled.'); return;
+    }
+    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+      sendError(res, 'unauthorized', 'This account is temporarily locked.'); return;
+    }
+    req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name };
+    next();
+  } catch {
+    sendError(res, 'server_error');
+  }
 }
 
 // Server-side authorization: the role must be permitted to access the page/resource.

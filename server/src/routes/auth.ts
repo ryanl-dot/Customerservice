@@ -1,36 +1,50 @@
 import { Router } from 'express';
 import type { SessionInfo } from '../../../shared/auth/session';
-import { findUserById, findUserByEmail, publicUser } from '../lib/users';
+import { getUserById, getUserByEmail, publicUser, recordLoginSuccess, recordLoginFailure } from '../lib/users';
 import { verifyPassword } from '../lib/passwords';
 import { createSession, destroySession, getSession, sessionExpiryIso } from '../lib/sessions';
 import { sendError } from '../lib/errors';
 import { audit } from '../lib/audit';
+import { isProduction } from '../lib/config';
 import { SESSION_COOKIE, loginLimiter } from '../middleware/auth';
 
 export const authRouter = Router();
 
 const cookieOptions = {
-  httpOnly: true,                                   // not readable by JS → XSS-resistant
-  secure: process.env.NODE_ENV === 'production',    // HTTPS-only in production
-  sameSite: 'lax' as const,
+  httpOnly: true,                 // not readable by JS → XSS-resistant
+  secure: isProduction(),         // HTTPS-only in production
+  sameSite: 'lax' as const,       // cookie sent on top-level same-site navigations
   signed: true,
   path: '/',
 };
 
-authRouter.post('/login', loginLimiter, (req, res) => {
+authRouter.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = (req.body ?? {}) as { email?: unknown; password?: unknown };
   if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
     sendError(res, 'invalid_request', 'Email and password are required.');
     return;
   }
-  const user = findUserByEmail(email);
-  // Generic failure message — do not reveal whether the email exists.
+  const user = await getUserByEmail(email);
+  // Generic failure message — never reveal whether the email exists.
   if (!user || !verifyPassword(password, user.passwordHash)) {
+    if (user) await recordLoginFailure(user.id);
     audit('login_failed', { target: `email:${email}`, outcome: 'denied', ip: req.ip });
     sendError(res, 'unauthenticated', 'Invalid email or password.');
     return;
   }
+  if (user.accountStatus === 'disabled') {
+    audit('login_failed', { actorId: user.id, target: 'account:disabled', outcome: 'denied', ip: req.ip });
+    sendError(res, 'unauthorized', 'This account has been disabled.');
+    return;
+  }
+  if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+    audit('login_failed', { actorId: user.id, target: 'account:locked', outcome: 'denied', ip: req.ip });
+    sendError(res, 'unauthorized', 'This account is temporarily locked. Try again later.');
+    return;
+  }
+
   const session = createSession(user.id);
+  await recordLoginSuccess(user.id);
   res.cookie(SESSION_COOKIE, session.token, cookieOptions);
   audit('login', { actorId: user.id, role: user.role, outcome: 'success', ip: req.ip });
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(session) };
@@ -48,15 +62,18 @@ authRouter.post('/logout', (req, res) => {
   res.json({ authenticated: false } satisfies SessionInfo);
 });
 
-authRouter.get('/session', (req, res) => {
+authRouter.get('/session', async (req, res) => {
   const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
   const lookup = getSession(token);
   if (lookup.status !== 'ok') {
     res.json({ authenticated: false } satisfies SessionInfo);
     return;
   }
-  const user = findUserById(lookup.session.userId);
-  if (!user) { res.json({ authenticated: false } satisfies SessionInfo); return; }
+  const user = await getUserById(lookup.session.userId);
+  if (!user || user.accountStatus === 'disabled') {
+    res.json({ authenticated: false } satisfies SessionInfo);
+    return;
+  }
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(lookup.session) };
   res.json(body);
 });
