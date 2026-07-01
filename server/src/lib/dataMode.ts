@@ -1,18 +1,16 @@
 import type { DataMode } from '../../../shared/api/types';
+import { dataMode as resolveDataMode, isProduction as resolveIsProduction } from './config';
 
-// Data mode is chosen by SERVER-SIDE configuration only. A normal user can never
-// flip production → mock. Unknown/unset values fall back to the safest mode (mock)
-// for local dev, but a deployment MUST set DATA_MODE=production explicitly.
+// Data mode is chosen by SERVER-SIDE configuration only (see config.ts). A normal
+// user can never flip production → mock. Production is enforced at startup by
+// validateEnv (DATA_MODE=production required), so there is no silent fallback.
 
 export function getDataMode(): DataMode {
-  const raw = (process.env.DATA_MODE ?? 'mock').toLowerCase();
-  if (raw === 'production') return 'production';
-  if (raw === 'test') return 'test';
-  return 'mock';
+  return resolveDataMode();
 }
 
 export function isProduction(): boolean {
-  return getDataMode() === 'production';
+  return resolveIsProduction();
 }
 
 // In production, real data only flows once an upstream connector (HubSpot/Enphase or

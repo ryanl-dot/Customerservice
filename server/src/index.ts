@@ -1,9 +1,13 @@
 import { createApp } from './app';
-import { getDataMode } from './lib/dataMode';
+import { assertEnvOrExit } from './lib/env';
+import { appMode, dataMode, userStore } from './lib/config';
+
+// Fail-closed: refuse to boot on unsafe production configuration.
+assertEnvOrExit();
 
 const PORT = Number(process.env.PORT ?? 8787);
 const app = createApp();
 
 app.listen(PORT, () => {
-  console.log(`[server] SolarCS API listening on :${PORT} (DATA_MODE=${getDataMode()})`);
+  console.log(`[server] SolarCS API on :${PORT} (APP_MODE=${appMode()}, DATA_MODE=${dataMode()}, USER_STORE=${userStore()})`);
 });
