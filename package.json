@@ -13,6 +13,8 @@
     "typecheck": "tsc -b",
     "typecheck:server": "tsc -p server/tsconfig.json",
     "dev:server": "tsx watch server/src/index.ts",
+    "start": "tsx server/src/index.ts",
+    "build:staging": "prisma generate && vite build",
     "create-admin": "tsx scripts/create-admin.ts",
     "migrate-local-admin": "tsx scripts/migrate-local-admin.ts",
     "db:generate": "prisma generate",
