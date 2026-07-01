@@ -45,6 +45,32 @@ used, `DATA_MODE≠production`, `USER_STORE=json`, or seed users are enabled.
    USER_STORE=db npm run create-admin
    ```
    Enter name/email/password at the prompt (hidden). No default credentials exist.
+7. **First MFA enrollment (mandatory for privileged roles):** sign in as the admin →
+   the app forces the MFA setup screen → scan the QR (or enter the key) in an
+   authenticator app → enter the 6-digit code. Until this completes, the admin session
+   is blocked from every protected page/API. MFA reset is administrator-controlled
+   (`POST /api/admin/users/:id/reset-mfa`) — there are no bypass codes.
+8. **Password-reset email:** set `EMAIL_TRANSPORT=resend`, `RESEND_API_KEY`, and
+   `EMAIL_FROM` (verified sender). See "Email provider" below. Production refuses a
+   console/test transport.
+9. **Empty state:** with no customer data source connected, the dashboard shows a
+   clean empty state (production never falls back to mock data).
+
+### Email provider (staging recommendation)
+- **Recommended:** Resend (simple HTTP API, ~3,000 emails/month free — confirm current
+  limits). Alternatives (SES/Postmark/SendGrid) drop in behind the same `Mailer`
+  interface.
+- **Account setup:** create a Resend account; add and verify a sending domain (DNS
+  SPF/DKIM) — a verified domain is required to send to arbitrary recipients (a sandbox
+  sender allows only your own address). Create an API key.
+- **Cost:** free tier is sufficient for staging with fictional data.
+- **Env vars:** `EMAIL_TRANSPORT=resend`, `RESEND_API_KEY`, `EMAIL_FROM`. Store the key
+  in Render secrets; never commit it.
+- **Rate limits:** Resend enforces per-account limits; the reset endpoint is also
+  rate-limited server-side.
+- **Testing:** local/unit tests use the non-delivering `test` transport (captured
+  in-memory). Do NOT claim reset works end-to-end until a real staging email has been
+  delivered and used successfully.
 
 ## 4. Health checks
 - Liveness: `GET /api/health` → `{ ok: true }` (Render health check path).

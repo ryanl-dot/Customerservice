@@ -8,15 +8,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [expired, setExpired] = useState(false);
+  const [mfaEnrollmentRequired, setMfaRequired] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const info = await authClient.fetchSession();
       if (info.authenticated && info.user) {
         setUser(info.user);
+        setMfaRequired(Boolean(info.mfaEnrollmentRequired));
         setStatus('authenticated');
       } else {
         setUser(null);
+        setMfaRequired(false);
         setStatus('unauthenticated');
       }
     } catch {
@@ -43,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (info.authenticated && info.user) {
       setExpired(false);
       setUser(info.user);
+      setMfaRequired(Boolean(info.mfaEnrollmentRequired));
       setStatus('authenticated');
     } else {
       throw new Error('Login failed.');
@@ -53,11 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authClient.logout();
     setUser(null);
     setExpired(false);
+    setMfaRequired(false);
     setStatus('unauthenticated');
   }, []);
 
   const value: AuthState = {
-    status, user, role: user?.role ?? null, expired, login, logout, refresh,
+    status, user, role: user?.role ?? null, expired, mfaEnrollmentRequired, login, logout, refresh,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

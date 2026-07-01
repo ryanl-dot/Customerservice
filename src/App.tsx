@@ -6,6 +6,8 @@ import { useAuth } from './auth/useAuth';
 import RequirePage from './auth/RequirePage';
 import { defaultLandingPage } from '../shared/auth/permissions';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
+import MfaSetup from './pages/MfaSetup';
 import Dashboard from './pages/Dashboard';
 import CustomerCases from './pages/CustomerCases';
 import CaseDetail from './pages/CaseDetail';
@@ -67,9 +69,13 @@ function AuthenticatedApp() {
 }
 
 function Gate() {
-  const { status } = useAuth();
+  const { status, mfaEnrollmentRequired } = useAuth();
+  // Public reset-password link works regardless of auth state.
+  if (window.location.pathname === '/reset-password') return <ResetPassword />;
   if (status === 'loading') return <LoadingScreen />;
   if (status === 'unauthenticated') return <Login />;
+  // Privileged users must finish MFA enrollment before anything else loads.
+  if (mfaEnrollmentRequired) return <MfaSetup />;
   return <AuthenticatedApp />;
 }
 

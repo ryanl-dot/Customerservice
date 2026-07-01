@@ -9,6 +9,8 @@ export interface AuthState {
   user: AuthUser | null;
   role: Role | null;
   expired: boolean;
+  /** Privileged user must complete MFA enrollment before using the app. */
+  mfaEnrollmentRequired: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;

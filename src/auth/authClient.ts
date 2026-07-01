@@ -48,3 +48,35 @@ export async function login(email: string, password: string): Promise<SessionInf
 export async function logout(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { ...csrfHeaders() } });
 }
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as T;
+}
+
+export interface MfaEnrollResponse { secret: string; otpauthUrl: string; qrDataUrl: string }
+export function mfaEnroll(): Promise<MfaEnrollResponse> {
+  return postJson<MfaEnrollResponse>('/api/auth/mfa/enroll', {});
+}
+export function mfaVerify(code: string): Promise<{ ok: boolean; mfaEnabled: boolean }> {
+  return postJson('/api/auth/mfa/verify', { code });
+}
+
+// Password reset — always resolves generically (server never reveals account existence).
+export async function requestPasswordReset(email: string): Promise<void> {
+  await fetch('/api/auth/request-password-reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ email }),
+  });
+}
+export function resetPassword(token: string, newPassword: string): Promise<{ ok: boolean }> {
+  return postJson('/api/auth/reset-password', { token, newPassword });
+}

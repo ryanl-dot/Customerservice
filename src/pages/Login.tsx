@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Sun, LogIn, AlertCircle } from 'lucide-react';
+import { Sun, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
+import { requestPasswordReset } from '../auth/authClient';
 
 export default function Login() {
   const { login, expired } = useAuth();
@@ -8,6 +9,14 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
+  async function onForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try { await requestPasswordReset(email); } finally { setBusy(false); setResetSent(true); }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,6 +44,26 @@ export default function Login() {
           </div>
         </div>
 
+        {forgot ? (
+          <form onSubmit={onForgot} className="bg-white border border-slate-200 rounded-lg p-5 space-y-3 shadow-sm">
+            <h1 className="text-sm font-semibold text-slate-700">Reset your password</h1>
+            {resetSent ? (
+              <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded-md px-3 py-2">
+                <CheckCircle2 size={13} /> If an account exists for that email, a reset link has been sent.
+              </div>
+            ) : (
+              <>
+                <p className="text-[11px] text-slate-500">Enter your email and we’ll send a reset link.</p>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@company.com"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                <button type="submit" disabled={busy} className="w-full bg-slate-900 text-white text-sm font-medium rounded-md py-2 hover:bg-slate-800 disabled:opacity-60">
+                  {busy ? 'Sending…' : 'Send reset link'}
+                </button>
+              </>
+            )}
+            <button type="button" onClick={() => { setForgot(false); setResetSent(false); }} className="text-xs text-blue-600 hover:underline">Back to sign in</button>
+          </form>
+        ) : (
         <form onSubmit={onSubmit} className="bg-white border border-slate-200 rounded-lg p-5 space-y-3 shadow-sm">
           <h1 className="text-sm font-semibold text-slate-700">Sign in</h1>
 
@@ -71,6 +100,10 @@ export default function Login() {
             <LogIn size={14} /> {busy ? 'Signing in…' : 'Sign in'}
           </button>
 
+          <button type="button" onClick={() => setForgot(true)} className="block text-xs text-blue-600 hover:underline">
+            Forgot password?
+          </button>
+
           {import.meta.env.DEV && (
             <p className="text-[10px] text-slate-400 leading-relaxed pt-1">
               Dev mode: seeded accounts are <code>cs@</code>, <code>ops@</code>, <code>compliance@</code>,
@@ -79,6 +112,7 @@ export default function Login() {
             </p>
           )}
         </form>
+        )}
       </div>
     </div>
   );
