@@ -7,15 +7,18 @@ import { getSession, touchSession } from '../lib/sessions';
 import { getUserById } from '../lib/users';
 import { sendError } from '../lib/errors';
 import { reqAudit } from '../lib/audit';
+import { roleRequiresMfa } from '../lib/mfa';
 
 export const SESSION_COOKIE = 'solarcs_session';
 
-// Augment Express Request with the authenticated principal.
+// Augment Express Request with the authenticated principal. `mfaPending` is true when
+// a privileged user has authenticated with a password but has not completed MFA
+// enrollment — the session is NOT fully authenticated in that state.
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      auth?: { userId: string; role: Role; email: string; name: string };
+      auth?: { userId: string; role: Role; email: string; name: string; mfaPending: boolean };
     }
   }
 }
@@ -45,11 +48,24 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       sendError(res, 'session_expired', 'Your session is no longer valid. Please sign in again.'); return;
     }
     void touchSession(lookup.session.token); // best-effort lastSeen update
-    req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name };
+    // Privileged role without completed MFA enrollment → session is MFA-pending.
+    const mfaPending = roleRequiresMfa(user.role) && !user.mfaEnabled;
+    req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name, mfaPending };
     next();
   } catch {
     sendError(res, 'server_error');
   }
+}
+
+// Gate that blocks MFA-pending sessions from everything except MFA enrollment. This is
+// the server-side enforcement that makes MFA un-bypassable by typing a URL directly.
+export function requireMfaSatisfied(req: Request, res: Response, next: NextFunction): void {
+  if (!req.auth) { sendError(res, 'unauthenticated'); return; }
+  if (req.auth.mfaPending) {
+    sendError(res, 'unauthorized', 'MFA enrollment is required before continuing.');
+    return;
+  }
+  next();
 }
 
 // Server-side authorization: the role must be permitted to access the page/resource.

@@ -33,16 +33,16 @@ export function roleRequiresMfa(role: Role): boolean {
   return MFA_REQUIRED_ROLES.includes(role);
 }
 
-// Whether forced privileged-role MFA enrollment is fully enforced. Second-factor at
-// login IS enforced for enrolled users; forced-enrollment gating for not-yet-enrolled
-// privileged users is NOT implemented in this phase, so this returns false.
+// Privileged-role MFA is fully enforced: not-yet-enrolled privileged users get an
+// MFA-pending session that is blocked from every protected endpoint until they
+// enroll and verify, and enrolled users must present a valid code at every login.
 export function mfaFullyEnforced(): boolean {
-  return false;
+  return true;
 }
 
-// Emit a clear startup notice in production while enforcement is incomplete.
+// Retained for symmetry; only warns if enforcement is ever turned off.
 export function warnIfMfaNotEnforced(): void {
   if (isProduction() && !mfaFullyEnforced()) {
-    console.warn('[startup] NOTICE: privileged-role MFA is NOT fully enforced yet (second factor is verified for enrolled users, but not-yet-enrolled privileged accounts are not blocked). NOT ready for real customer data.');
+    console.warn('[startup] NOTICE: privileged-role MFA is NOT fully enforced.');
   }
 }

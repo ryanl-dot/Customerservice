@@ -14,4 +14,11 @@ export interface SessionInfo {
   user?: AuthUser;
   /** ISO timestamp when the session expires; used by the client to detect expiry. */
   expiresAt?: string;
+  /**
+   * Set when the signed-in user holds a privileged role but has not completed MFA
+   * enrollment. The session is NOT fully authenticated: the client must route to the
+   * mandatory MFA setup screen, and the server blocks all protected endpoints except
+   * MFA enrollment until this clears.
+   */
+  mfaEnrollmentRequired?: boolean;
 }

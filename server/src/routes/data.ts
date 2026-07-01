@@ -5,13 +5,15 @@ import type { TruckRollRecord } from '../../../src/data/truckRollData';
 import { getCases, getTruckRolls, getKpis } from '../lib/dataSource';
 import { getDataMode } from '../lib/dataMode';
 import { minimizeCase, minimizeTruckRoll } from '../lib/minimize';
-import { requireAuth, requirePage } from '../middleware/auth';
+import { requireAuth, requirePage, requireMfaSatisfied } from '../middleware/auth';
 import { reqAudit } from '../lib/audit';
 import { sendError } from '../lib/errors';
 
 export const dataRouter = Router();
 
 dataRouter.use(requireAuth);
+// MFA-pending (privileged, un-enrolled) sessions cannot reach any data endpoint.
+dataRouter.use(requireMfaSatisfied);
 
 // Cases — role must have case access; sensitive fields stripped per role.
 dataRouter.get('/cases', requirePage('cases'), (req, res) => {

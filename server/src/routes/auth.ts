@@ -12,8 +12,10 @@ import { createResetToken, consumeResetToken } from '../db/repositories/password
 import { hashPassword } from '../lib/passwords';
 import { SESSION_COOKIE, loginLimiter, requireAuth } from '../middleware/auth';
 import { validateBody, z, emailField, passwordField, tokenField, totpField } from '../lib/validate';
-import { generateMfaSecret, mfaKeyUri, verifyTotp } from '../lib/mfa';
+import { generateMfaSecret, mfaKeyUri, verifyTotp, roleRequiresMfa } from '../lib/mfa';
 import { getMfaSecret, setMfaSecret, enableMfa, disableMfa } from '../db/repositories/users';
+import { getMailer, passwordResetMessage } from '../lib/email';
+import QRCode from 'qrcode';
 
 export const authRouter = Router();
 
@@ -77,7 +79,10 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
   await recordLoginSuccess(user.id);
   res.cookie(SESSION_COOKIE, session.token, cookieOptions);
   reqAudit(req, 'login', { actorId: user.id, result: 'success' });
-  const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(session) };
+  // Privileged role that hasn't enrolled MFA → session is MFA-pending; the client must
+  // route to mandatory enrollment and the server blocks protected endpoints meanwhile.
+  const mfaEnrollmentRequired = roleRequiresMfa(user.role) && !user.mfaEnabled;
+  const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(session), mfaEnrollmentRequired };
   res.json(body);
 });
 
@@ -104,7 +109,8 @@ authRouter.get('/session', async (req, res) => {
     res.json({ authenticated: false } satisfies SessionInfo);
     return;
   }
-  const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(lookup.session) };
+  const mfaEnrollmentRequired = roleRequiresMfa(user.role) && !user.mfaEnabled;
+  const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(lookup.session), mfaEnrollmentRequired };
   res.json(body);
 });
 
@@ -117,9 +123,15 @@ authRouter.post('/request-password-reset', loginLimiter, validateBody(requestRes
   if (dbMode()) {
     const user = await getUserByEmail(email);
     if (user) {
-      await createResetToken(user.id);
-      // TODO(mail): send rawToken to the user's email via the mail transport.
-      // Intentionally NOT returned/logged — no dev shortcut that could leak in prod.
+      const { rawToken } = await createResetToken(user.id);
+      const base = (process.env.FRONTEND_ORIGIN ?? '').split(',')[0].trim() || process.env.API_ORIGIN || '';
+      const resetUrl = `${base}/reset-password?token=${rawToken}`;
+      try {
+        // Delivered by the configured transport. The raw token/link is NEVER logged.
+        await getMailer().send(passwordResetMessage(user.email, resetUrl));
+      } catch {
+        console.warn('[email] password-reset send failed (transport error).'); // no token/link logged
+      }
     }
   }
   res.json({ ok: true, message: GENERIC_RESET_MSG });
@@ -146,14 +158,22 @@ authRouter.post('/mfa/enroll', requireAuth, async (req, res) => {
   if (!dbMode()) { sendError(res, 'invalid_request', 'MFA requires the database store.'); return; }
   const secret = generateMfaSecret();
   await setMfaSecret(req.auth!.userId, secret);
-  res.json({ secret, otpauthUrl: mfaKeyUri(req.auth!.email, secret) });
+  const otpauthUrl = mfaKeyUri(req.auth!.email, secret);
+  // Server-rendered QR as a data: URL (CSP allows img-src data:). Secret also returned
+  // for manual entry. This is the user's own secret; returned only to them.
+  const qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 220 });
+  res.json({ secret, otpauthUrl, qrDataUrl });
 });
 
 // Confirm enrollment by verifying a code, which enables MFA for the account.
 authRouter.post('/mfa/verify', requireAuth, validateBody(mfaCodeSchema), async (req, res) => {
   const { code } = req.body as { code: string };
   const secret = await getMfaSecret(req.auth!.userId);
-  if (!secret || !(await verifyTotp(code, secret))) { sendError(res, 'invalid_request', 'Invalid authentication code.'); return; }
+  if (!secret || !(await verifyTotp(code, secret))) {
+    reqAudit(req, 'login_failed', { actorId: req.auth!.userId, targetType: 'mfa', targetId: 'enroll_verify', result: 'denied' });
+    sendError(res, 'invalid_request', 'Invalid authentication code.');
+    return;
+  }
   await enableMfa(req.auth!.userId);
   reqAudit(req, 'config_change', { actorId: req.auth!.userId, targetType: 'mfa', targetId: 'enabled', result: 'success' });
   res.json({ ok: true, mfaEnabled: true });

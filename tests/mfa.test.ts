@@ -26,9 +26,7 @@ describe('MFA (TOTP)', () => {
     expect(roleRequiresMfa('customer_service')).toBe(false);
   });
 
-  it('reports that privileged-role MFA is not fully enforced this phase', () => {
-    // Enrollment gating for not-yet-enrolled privileged users is not implemented,
-    // so the app must not claim full enforcement.
-    expect(mfaFullyEnforced()).toBe(false);
+  it('reports privileged-role MFA as fully enforced (pending sessions are blocked)', () => {
+    expect(mfaFullyEnforced()).toBe(true);
   });
 });

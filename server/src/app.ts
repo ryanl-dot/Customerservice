@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from 'express';
 import cookieParser from 'cookie-parser';
 import { authRouter } from './routes/auth';
 import { dataRouter } from './routes/data';
+import { adminRouter } from './routes/admin';
 import { sendError } from './lib/errors';
 import { helmetMiddleware, corsMiddleware, permissionsPolicy } from './middleware/security';
 import { issueCsrfToken, requireCsrf } from './middleware/csrf';
@@ -48,6 +49,7 @@ export function createApp() {
   app.use('/api', requireCsrf);
 
   app.use('/api/auth', authRouter);
+  app.use('/api/admin', adminRouter);
   app.use('/api', dataRouter);
 
   // Unknown API routes → JSON 404 (never SPA HTML).
