@@ -19,6 +19,7 @@ import { addPersistedUser, emailExists as jsonEmailExists, storePath } from '../
 import { userStore, isProduction } from '../server/src/lib/config';
 import * as dbUsers from '../server/src/db/repositories/users';
 import { disconnectPrisma } from '../server/src/db/client';
+import { audit } from '../server/src/lib/audit';
 
 const MIN_PASSWORD = 12;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -93,6 +94,7 @@ async function main() {
 
   if (STORE === 'db') {
     const created = await dbUsers.createUser({ name, email, role: 'administrator', passwordHash });
+    audit('admin_created', { actorId: created.id, targetType: 'user', targetId: created.id, result: 'success' });
     console.log(`\n✓ Administrator "${name}" <${email}> created in the database (id ${created.id}).`);
   } else {
     addPersistedUser({ id: `admin-${randomUUID()}`, name, email, role: 'administrator', passwordHash });

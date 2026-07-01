@@ -4,7 +4,7 @@ import { getUserById, getUserByEmail, publicUser, recordLoginSuccess, recordLogi
 import { verifyPassword } from '../lib/passwords';
 import { createSession, destroySession, getSession, sessionExpiryIso } from '../lib/sessions';
 import { sendError } from '../lib/errors';
-import { audit } from '../lib/audit';
+import { reqAudit, emailAuditId } from '../lib/audit';
 import { isProduction } from '../lib/config';
 import { SESSION_COOKIE, loginLimiter } from '../middleware/auth';
 import { validateBody, z, emailField } from '../lib/validate';
@@ -30,17 +30,17 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
   // Generic failure message — never reveal whether the email exists.
   if (!user || !verifyPassword(password, user.passwordHash)) {
     if (user) await recordLoginFailure(user.id);
-    audit('login_failed', { target: `email:${email}`, outcome: 'denied', ip: req.ip });
+    reqAudit(req, 'login_failed', { targetType: 'email', targetId: emailAuditId(email), result: 'denied' });
     sendError(res, 'unauthenticated', 'Invalid email or password.');
     return;
   }
   if (user.accountStatus === 'disabled') {
-    audit('login_failed', { actorId: user.id, target: 'account:disabled', outcome: 'denied', ip: req.ip });
+    reqAudit(req, 'login_failed', { actorId: user.id, targetType: 'account', targetId: 'disabled', result: 'denied' });
     sendError(res, 'unauthorized', 'This account has been disabled.');
     return;
   }
   if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
-    audit('login_failed', { actorId: user.id, target: 'account:locked', outcome: 'denied', ip: req.ip });
+    reqAudit(req, 'login_failed', { actorId: user.id, targetType: 'account', targetId: 'locked', result: 'denied' });
     sendError(res, 'unauthorized', 'This account is temporarily locked. Try again later.');
     return;
   }
@@ -48,7 +48,7 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
   const session = await createSession(user.id, { userAgent: req.get('user-agent') ?? undefined, ip: req.ip });
   await recordLoginSuccess(user.id);
   res.cookie(SESSION_COOKIE, session.token, cookieOptions);
-  audit('login', { actorId: user.id, role: user.role, outcome: 'success', ip: req.ip });
+  reqAudit(req, 'login', { actorId: user.id, result: 'success' });
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(session) };
   res.json(body);
 });
@@ -57,7 +57,7 @@ authRouter.post('/logout', async (req, res) => {
   const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
   const lookup = await getSession(token);
   if (lookup.status === 'ok') {
-    audit('logout', { actorId: lookup.session.userId, outcome: 'success', ip: req.ip });
+    reqAudit(req, 'logout', { actorId: lookup.session.userId, result: 'success' });
   }
   await destroySession(token); // server-side revocation
   res.clearCookie(SESSION_COOKIE, cookieOptions);

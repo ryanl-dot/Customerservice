@@ -6,7 +6,7 @@ import { canAccessPage } from '../../../shared/auth/permissions';
 import { getSession, touchSession } from '../lib/sessions';
 import { getUserById } from '../lib/users';
 import { sendError } from '../lib/errors';
-import { audit } from '../lib/audit';
+import { reqAudit } from '../lib/audit';
 
 export const SESSION_COOKIE = 'solarcs_session';
 
@@ -33,7 +33,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const user = await getUserById(lookup.session.userId);
     if (!user) { sendError(res, 'unauthenticated'); return; }
     if (user.accountStatus === 'disabled') {
-      audit('unauthorized_route', { actorId: user.id, role: user.role, target: 'account:disabled', outcome: 'denied', ip: req.ip });
+      reqAudit(req, 'unauthorized_route', { actorId: user.id, targetType: 'account', targetId: 'disabled', result: 'denied' });
       sendError(res, 'unauthorized', 'This account has been disabled.'); return;
     }
     if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
@@ -58,9 +58,8 @@ export function requirePage(page: PageKey) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) { sendError(res, 'unauthenticated'); return; }
     if (!canAccessPage(req.auth.role, page)) {
-      audit('unauthorized_route', {
-        actorId: req.auth.userId, role: req.auth.role,
-        target: `page:${page}`, outcome: 'denied', ip: req.ip,
+      reqAudit(req, 'unauthorized_route', {
+        actorId: req.auth.userId, targetType: 'page', targetId: page, result: 'denied',
       });
       sendError(res, 'unauthorized');
       return;
@@ -73,9 +72,8 @@ export function requireRole(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) { sendError(res, 'unauthenticated'); return; }
     if (!roles.includes(req.auth.role)) {
-      audit('unauthorized_route', {
-        actorId: req.auth.userId, role: req.auth.role,
-        target: `roles:${roles.join(',')}`, outcome: 'denied', ip: req.ip,
+      reqAudit(req, 'unauthorized_route', {
+        actorId: req.auth.userId, targetType: 'roles', targetId: roles.join(','), result: 'denied',
       });
       sendError(res, 'unauthorized');
       return;

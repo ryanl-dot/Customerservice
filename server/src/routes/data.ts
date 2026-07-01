@@ -6,7 +6,7 @@ import { getCases, getTruckRolls, getKpis } from '../lib/dataSource';
 import { getDataMode } from '../lib/dataMode';
 import { minimizeCase, minimizeTruckRoll } from '../lib/minimize';
 import { requireAuth, requirePage } from '../middleware/auth';
-import { audit } from '../lib/audit';
+import { reqAudit } from '../lib/audit';
 import { sendError } from '../lib/errors';
 
 export const dataRouter = Router();
@@ -17,7 +17,7 @@ dataRouter.use(requireAuth);
 dataRouter.get('/cases', requirePage('cases'), (req, res) => {
   const role = req.auth!.role;
   const { empty, data } = getCases();
-  audit('customer_record_access', { actorId: req.auth!.userId, role, target: 'cases', ip: req.ip });
+  reqAudit(req, 'customer_viewed', { actorId: req.auth!.userId, targetType: 'cases' });
   const body: ListResponse<CustomerCase> = {
     mode: getDataMode(), empty, data: data.map(c => minimizeCase(c, role)),
   };
