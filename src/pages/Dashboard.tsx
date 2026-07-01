@@ -5,10 +5,7 @@ import {
   Users, ShieldAlert, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
-import {
-  truckRollRecords,
-  trIsOpen, trIsOverdue, trIsCritical, trCompletedThisMonth, hasActiveRMA,
-} from '../data/truckRollData';
+import { truckRollRecords, TR_VIEWS } from '../data/truckRollData';
 import { PriorityBadge, StatusBadge, RiskBadge } from '../components/Badge';
 import {
   buildDailySummary, computeRisk, isDueToday,
@@ -20,17 +17,17 @@ export default function Dashboard() {
   const kpi = computeAllKPIs(cases, truckRolls);
   const summary = buildDailySummary(cases, truckRolls);
 
-  // TR summary from new operational dataset
+  // TR summary — uses the SAME shared predicates (TR_VIEWS) as the Truck Roll Center,
+  // so the counts here exactly match the drill-down totals there.
   const trs = truckRollRecords;
-  const trOpen           = trs.filter(trIsOpen);
-  const trNeedsSched     = trOpen.filter(t => t.status === 'Awaiting Customer Scheduling' || t.status === 'New' || t.status === 'Customer Contact Required');
-  const trScheduled      = trOpen.filter(t => t.status === 'Scheduled');
-  const trAwaitParts     = trOpen.filter(t => t.status === 'Awaiting Parts');
-  const trActiveRMA      = trs.filter(hasActiveRMA);
-  const trRevisit        = trOpen.filter(t => t.status === 'Return Visit Required' || t.status === 'Revisit Scheduled');
-  const trOverdue        = trs.filter(trIsOverdue);
-  const trCritical       = trs.filter(trIsCritical);
-  const trCompletedMo    = trs.filter(trCompletedThisMonth);
+  const trOpen        = trs.filter(TR_VIEWS['open'].predicate);
+  const trNeedsSched  = trs.filter(TR_VIEWS['needs-scheduling'].predicate);
+  const trScheduled   = trs.filter(TR_VIEWS['scheduled'].predicate);
+  const trAwaitParts  = trs.filter(TR_VIEWS['awaiting-parts'].predicate);
+  const trActiveRMA   = trs.filter(TR_VIEWS['active-rma'].predicate);
+  const trOverdue     = trs.filter(TR_VIEWS['overdue'].predicate);
+  const trCritical    = trs.filter(TR_VIEWS['critical'].predicate);
+  const trCompletedMo = trs.filter(TR_VIEWS['completed-this-month'].predicate);
 
   const openCases = cases.filter(c => c.status !== 'Closed' && c.status !== 'Resolved');
 
@@ -158,16 +155,21 @@ export default function Dashboard() {
         </div>
         <div className="grid grid-cols-4 xl:grid-cols-8 divide-x divide-slate-100">
           {[
-            { label: 'Total Open',         value: trOpen.length,        link: '/truck-roll?tab=all',            alert: false },
-            { label: 'Needs Scheduling',   value: trNeedsSched.length,  link: '/truck-roll?tab=scheduling',     alert: trNeedsSched.length > 0 },
-            { label: 'Scheduled',          value: trScheduled.length,   link: '/truck-roll?tab=scheduling',     alert: false },
-            { label: 'Awaiting Parts',     value: trAwaitParts.length,  link: '/truck-roll?tab=scheduling',     alert: trAwaitParts.length > 0 },
-            { label: 'Active RMAs',        value: trActiveRMA.length,   link: '/truck-roll?tab=enphase',        alert: false },
-            { label: 'Revisit Required',   value: trRevisit.length,     link: '/truck-roll?tab=all',            alert: trRevisit.length > 0 },
-            { label: 'Overdue',            value: trOverdue.length,     link: '/truck-roll?tab=overview',       alert: trOverdue.length > 0 },
-            { label: 'Completed (Jun)',    value: trCompletedMo.length, link: '/truck-roll?tab=completed',      alert: false },
+            { label: 'Total Open',       value: trOpen.length,        link: '/truck-roll?tab=all&view=open',                  alert: false },
+            { label: 'Needs Scheduling', value: trNeedsSched.length,  link: '/truck-roll?tab=all&view=needs-scheduling',      alert: trNeedsSched.length > 0 },
+            { label: 'Scheduled',        value: trScheduled.length,   link: '/truck-roll?tab=all&view=scheduled',             alert: false },
+            { label: 'Awaiting Parts',   value: trAwaitParts.length,  link: '/truck-roll?tab=all&view=awaiting-parts',        alert: trAwaitParts.length > 0 },
+            { label: 'Active RMAs',      value: trActiveRMA.length,   link: '/truck-roll?tab=all&view=active-rma',            alert: false },
+            { label: 'Overdue',          value: trOverdue.length,     link: '/truck-roll?tab=all&view=overdue',               alert: trOverdue.length > 0 },
+            { label: 'Critical',         value: trCritical.length,    link: '/truck-roll?tab=all&view=critical',              alert: trCritical.length > 0 },
+            { label: 'Completed (Jun)',  value: trCompletedMo.length, link: '/truck-roll?tab=all&view=completed-this-month',  alert: false },
           ].map(({ label, value, link, alert }) => (
-            <Link key={label} to={link} className="flex flex-col px-4 py-3 hover:bg-slate-50 transition-colors">
+            <Link
+              key={label}
+              to={link}
+              aria-label={`View ${value} ${label} truck rolls`}
+              className="flex flex-col px-4 py-3 hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-300"
+            >
               <div className={`text-xl font-bold ${alert && value > 0 ? 'text-orange-600' : 'text-slate-800'}`}>{value}</div>
               <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">{label}</div>
             </Link>

@@ -6,12 +6,15 @@ import {
 } from 'lucide-react';
 import { cases, truckRolls } from '../data/sampleData';
 import { computeAllKPIs } from '../utils/kpiCalculations';
+import { canonicalTruckRolls } from '../data/truckRoll/source';
+import { trGnrRemoteResolved } from '../data/truckRollData';
 
 // ── Compute KPIs from shared source ──────────────────────────────────────────
 
 const MONTHLY = ['Jan','Feb','Mar','Apr','May','Jun'];
 
 const _kpi = computeAllKPIs(cases, truckRolls);
+const _gnr = canonicalTruckRolls.filter(t => t.issueCategory === 'Gateway Not Reporting');
 
 // KPI_SUMMARY uses live computed values where available; historical/doc values remain static.
 const KPI_SUMMARY = {
@@ -33,14 +36,16 @@ const KPI_SUMMARY = {
   revisitPct: _kpi.trRevisitRate,
   revisitCount: _kpi.trRevisitFlaggedCount,
   gnrPct: _kpi.gnrRemoteRate,
-  gnrTotal: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting').length,
-  gnrRemote: truckRolls.filter(t => t.issueType === 'Gateway Not Reporting' && t.couldBeDoneRemotely).length,
+  gnrTotal: _gnr.length,
+  gnrRemote: _gnr.filter(trGnrRemoteResolved).length,
   gnrSavings: 1800,
   docPct: 85.0, docAudited: 20, docComplete: 17,
   auditScore: 91, firstResponseAvg: 3.2, firstResponseSla: 87.5,
   reopenPct: 3.2, reopenCount: 4, closedCount: 125,
-  escalationPct: Math.round(_kpi.escalatedCount / Math.max(_kpi.openCount, 1) * 1000) / 10,
-  escalationCount: _kpi.escalatedCount,
+  // Escalation Rate: shared single definition — escalated cases (any status) ÷ total cases.
+  escalationPct: _kpi.escalationRate,
+  escalationCount: _kpi.escalatedAllCount,
+  escalationTotal: _kpi.totalCaseCount,
   recoveryPct: 75.0, recoveredAccounts: 9, delinquentAccounts: 12,
   recoveredAmount: 14820,
 };
@@ -218,6 +223,7 @@ export default function KPICenter() {
             <span className="text-[11px] font-semibold bg-red-600 text-white px-2 py-0.5 rounded-md">Admin Only</span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">Teamwide Customer Service Metrics — Reporting Period: {period}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Scope: case metrics cover all cases (open + closed); truck-roll metrics use the legacy truck-roll dataset. Live-computed values are sourced from the shared KPI module; trend lines and items marked “Illustrative” are seed data.</p>
         </div>
         <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ring-1`} style={{ color: gColor(latestScore.grade), backgroundColor: gColor(latestScore.grade) + '18', outlineColor: gColor(latestScore.grade) + '40' }}>
           {period} Score: {latestScore.score} — {latestScore.grade}
@@ -383,7 +389,7 @@ export default function KPICenter() {
             </div>
           </div>
           <GoalBadge passes={KPI_SUMMARY.trPct >= 95} label="Goal: 95%+" />
-          <div className="mt-2"><TinyLine values={[88.2,90.1,92.3,91.7,93.4,60.0]} color="#3b82f6" goal={95} /></div>
+          <div className="mt-2"><TinyLine values={[88.2,90.1,92.3,91.7,93.4,KPI_SUMMARY.trPct]} color="#3b82f6" goal={95} /></div>
         </KPICard>
 
         <KPICard title="7 · Truck Roll Revisit Rate" icon={RefreshCw} accent="bg-orange-50 border-orange-100 text-orange-800">
@@ -400,7 +406,7 @@ export default function KPICenter() {
             </div>
           </div>
           <GoalBadge passes={KPI_SUMMARY.revisitPct <= 15} label="Goal: <15%" />
-          <div className="mt-2"><TinyLine values={[28.1,25.4,22.1,19.8,18.2,33.3]} color="#f97316" goal={15} /></div>
+          <div className="mt-2"><TinyLine values={[28.1,25.4,22.1,19.8,18.2,KPI_SUMMARY.revisitPct]} color="#f97316" goal={15} /></div>
         </KPICard>
 
         <KPICard title="8 · GNR Remote Resolution Rate" icon={TrendingUp} accent="bg-emerald-50 border-emerald-100 text-emerald-800">
@@ -527,12 +533,13 @@ export default function KPICenter() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 flex-1">
-              <Tile label="Total Tickets" value={KPI_SUMMARY.closedCount}      status="neutral" />
-              <Tile label="Escalated"     value={KPI_SUMMARY.escalationCount}  status="good" />
+              <Tile label="Total Cases (all statuses)" value={KPI_SUMMARY.escalationTotal} status="neutral" />
+              <Tile label="Escalated"                  value={KPI_SUMMARY.escalationCount} status="bad" />
             </div>
           </div>
           <GoalBadge passes={KPI_SUMMARY.escalationPct <= 5} label="Goal: <5%" />
-          <div className="mt-2"><TinyLine values={[7.2,6.8,5.9,5.3,4.6,4.0]} color="#ef4444" goal={5} /></div>
+          <p className="text-[10px] text-slate-400 mt-1.5">Live: {KPI_SUMMARY.escalationCount} of {KPI_SUMMARY.escalationTotal} cases escalated = {KPI_SUMMARY.escalationPct}%. Trend line below is illustrative historical.</p>
+          <div className="mt-2"><TinyLine values={[7.2,6.8,5.9,5.3,4.6,KPI_SUMMARY.escalationPct]} color="#ef4444" goal={5} /></div>
         </KPICard>
 
         <KPICard title="14 · Collection Recovery Rate" icon={DollarSign} accent="bg-green-50 border-green-100 text-green-800">
@@ -561,11 +568,12 @@ export default function KPICenter() {
       <KPICard title="Employee Performance Scorecard" icon={Award} accent="bg-slate-800 border-slate-700 text-white">
         <div className="grid grid-cols-3 gap-3 mb-4">
           {[
-            { label:'Jun Score', score:84, grade:'C' },
-            { label:'Q2 Score',  score:83, grade:'C' },
-            { label:'YTD Score', score:81, grade:'C' },
-          ].map(({ label, score, grade }) => (
-            <div key={label} className="bg-slate-50 rounded-lg p-3 text-center">
+            { label:'Jun Score (live)', score:_ms.score, grade:_ms.grade, live:true },
+            { label:'Q2 Score',        score:83,         grade:'C',       live:false },
+            { label:'YTD Score',       score:81,         grade:'C',       live:false },
+          ].map(({ label, score, grade, live }) => (
+            <div key={label} className="bg-slate-50 rounded-lg p-3 text-center relative">
+              {!live && <span className="absolute top-1.5 right-1.5 text-[8px] font-semibold text-slate-400 bg-slate-200 px-1 py-0.5 rounded uppercase tracking-wide">Illustrative</span>}
               <div className="text-2xl font-bold text-slate-800">{score}</div>
               <div className="inline-flex items-center justify-center w-8 h-8 rounded-full ring-1 text-base font-bold mt-1"
                 style={{ color: gColor(grade), backgroundColor: gColor(grade)+'18', outlineColor: gColor(grade) }}>
@@ -577,16 +585,18 @@ export default function KPICenter() {
         </div>
 
         <div className="bg-slate-50 rounded-lg p-3 mb-4">
-          <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wide">Scorecard Weights</p>
+          <p className="text-[11px] font-semibold text-slate-500 mb-2 uppercase tracking-wide">Scorecard Weights (as computed)</p>
+          <p className="text-[10px] text-slate-400 mb-2 -mt-1">These are the exact components and weights used by the live Monthly Score ({_ms.score}, grade {_ms.grade}).</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
-            {[['CSAT','20%'],['Follow-Up Compliance','20%'],['Resolution Time','15%'],['Collection Recovery','15%'],['First Response','10%'],['Doc Accuracy','10%'],['Escalation Rate','5%'],['Reopen Rate','5%']].map(([k,v]) => (
-              <div key={k} className="flex justify-between text-xs text-slate-600 bg-white rounded px-2 py-1 border border-slate-200">
-                <span>{k}</span><span className="font-semibold">{v}</span>
+            {_ms.components.map(c => (
+              <div key={c.label} className="flex justify-between text-xs text-slate-600 bg-white rounded px-2 py-1 border border-slate-200">
+                <span>{c.label}</span><span className="font-semibold">{c.weight}%</span>
               </div>
             ))}
           </div>
         </div>
 
+        <p className="text-[10px] text-slate-400 mb-1.5">June Score / Grade are live-computed from the shared KPI source; the CSAT, 1st Response, Collections, and Reopen columns and all prior months are illustrative historical seed data (no live source yet).</p>
         <div className="overflow-x-auto mb-4">
           <table className="w-full text-xs">
             <thead>
@@ -598,7 +608,7 @@ export default function KPICenter() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {[
-                {month:'Jun',csat:88,fr:86,fu:86,rt:85,doc:85,col:75,esc:84,ro:82,score:84,grade:'C'},
+                {month:'Jun',csat:88,fr:86,fu:86,rt:85,doc:85,col:75,esc:84,ro:82,score:_ms.score,grade:_ms.grade},
                 {month:'May',csat:86,fr:82,fu:85,rt:82,doc:84,col:72,esc:80,ro:79,score:83,grade:'C'},
                 {month:'Apr',csat:82,fr:76,fu:84,rt:78,doc:81,col:68,esc:76,ro:75,score:80,grade:'C'},
                 {month:'Mar',csat:79,fr:71,fu:82,rt:75,doc:79,col:65,esc:72,ro:71,score:77,grade:'F'},

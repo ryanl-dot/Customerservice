@@ -9,9 +9,14 @@ import {
   type TruckRollRecord,
   type TRStatus,
   type RMAStatus,
+  type TRViewKey,
+  type AgingKey,
   trDaysOpen, trIsOverdue, trIsCritical, trIsOpen, trCompletedThisMonth,
   hasActiveRMA, hasPendingDefectiveReturn, outstandingReimbursement,
   trAgingBucket,
+  TR_VIEWS, isTRViewKey,
+  AGING_VIEWS, AGING_BUCKET_TO_KEY, isAgingKey, trInAgingBucket,
+  issueCategoryToSlug,
 } from '../data/truckRollData';
 
 // ── Status Badges ─────────────────────────────────────────────────────────────
@@ -74,13 +79,32 @@ function RMAStatusBadge({ status }: { status: RMAStatus }) {
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
-function KPICard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
+function KPICard({
+  label, value, sub, accent, onClick, ariaLabel,
+}: {
+  label: string; value: number | string; sub?: string; accent?: string;
+  onClick?: () => void; ariaLabel?: string;
+}) {
+  const inner = (
+    <>
       <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wide mb-1">{label}</div>
       <div className={`text-2xl font-bold ${accent ?? 'text-slate-800'}`}>{value}</div>
       {sub && <div className="text-[10px] text-slate-400 mt-1">{sub}</div>}
-    </div>
+    </>
+  );
+  if (!onClick) {
+    return <div className="bg-white border border-slate-200 rounded-lg p-4">{inner}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel ?? label}
+      className="text-left bg-white border border-slate-200 rounded-lg p-4 cursor-pointer transition-all
+        hover:border-blue-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+    >
+      {inner}
+    </button>
   );
 }
 
@@ -194,19 +218,24 @@ function ExpandedTRRow({ t, colSpan }: { t: TruckRollRecord; colSpan: number }) 
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
-function OverviewTab({ records }: { records: TruckRollRecord[] }) {
-  const open        = records.filter(trIsOpen);
-  const overdue     = records.filter(trIsOverdue);
-  const critical    = records.filter(trIsCritical);
-  const completedMo = records.filter(trCompletedThisMonth);
+function OverviewTab({
+  records, onDrillView, onDrillAging, onDrillIssue,
+}: {
+  records: TruckRollRecord[];
+  onDrillView: (key: TRViewKey) => void;
+  onDrillAging: (key: AgingKey) => void;
+  onDrillIssue: (category: string) => void;
+}) {
+  // All counts come from the shared TR_VIEWS predicates so cards and drill-down match.
+  const open        = records.filter(TR_VIEWS['open'].predicate);
+  const overdue     = records.filter(TR_VIEWS['overdue'].predicate);
+  const critical    = records.filter(TR_VIEWS['critical'].predicate);
+  const completedMo = records.filter(TR_VIEWS['completed-this-month'].predicate);
+  const awaitingSched = records.filter(TR_VIEWS['needs-scheduling'].predicate);
+  const scheduled   = records.filter(TR_VIEWS['scheduled'].predicate);
+  const awaitParts  = records.filter(TR_VIEWS['awaiting-parts'].predicate);
+  const withRMA     = records.filter(TR_VIEWS['active-rma'].predicate);
   const pendingRet  = records.filter(hasPendingDefectiveReturn);
-  const awaitingSched = open.filter(t =>
-    t.status === 'Awaiting Customer Scheduling' || t.status === 'New' ||
-    t.status === 'Customer Contact Required'    || t.status === 'Awaiting Customer Confirmation'
-  );
-  const scheduled   = open.filter(t => t.status === 'Scheduled' || t.status === 'Revisit Scheduled');
-  const awaitParts  = open.filter(t => t.status === 'Awaiting Parts');
-  const withRMA     = records.filter(hasActiveRMA);
 
   const buckets: Record<string, number> = {
     '0–7 Days': 0, '8–14 Days': 0, '15–21 Days': 0, '22–30 Days': 0, '30+ Days': 0,
@@ -220,6 +249,10 @@ function OverviewTab({ records }: { records: TruckRollRecord[] }) {
   const totalOutstanding = records.reduce(
     (sum, t) => sum + t.rmas.reduce((s, r) => s + outstandingReimbursement(r), 0), 0
   );
+
+  const onKeyActivate = (fn: () => void) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+  };
 
   return (
     <div className="space-y-5">
@@ -247,26 +280,38 @@ function OverviewTab({ records }: { records: TruckRollRecord[] }) {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        <KPICard label="Total Open"       value={open.length} />
-        <KPICard label="Needs Scheduling" value={awaitingSched.length} accent={awaitingSched.length > 0 ? 'text-amber-700' : undefined} />
-        <KPICard label="Scheduled"        value={scheduled.length}    accent="text-blue-700" />
-        <KPICard label="Awaiting Parts"   value={awaitParts.length}   accent={awaitParts.length > 0 ? 'text-yellow-700' : undefined} />
-        <KPICard label="Active RMAs"      value={withRMA.length}      accent={withRMA.length > 0 ? 'text-purple-700' : undefined} />
-        <KPICard label="Overdue"          value={overdue.length}      accent={overdue.length > 0 ? 'text-orange-700' : undefined} />
-        <KPICard label="Critical"         value={critical.length}     accent={critical.length > 0 ? 'text-red-700' : undefined} />
-        <KPICard label="Completed (Jun)"  value={completedMo.length}  accent="text-emerald-700" />
+        <KPICard label="Total Open"       value={open.length}          onClick={() => onDrillView('open')}             ariaLabel={`View ${open.length} open truck rolls`} />
+        <KPICard label="Needs Scheduling" value={awaitingSched.length} onClick={() => onDrillView('needs-scheduling')} ariaLabel={`View ${awaitingSched.length} truck rolls needing scheduling`} accent={awaitingSched.length > 0 ? 'text-amber-700' : undefined} />
+        <KPICard label="Scheduled"        value={scheduled.length}     onClick={() => onDrillView('scheduled')}        ariaLabel={`View ${scheduled.length} scheduled truck rolls`} accent="text-blue-700" />
+        <KPICard label="Awaiting Parts"   value={awaitParts.length}    onClick={() => onDrillView('awaiting-parts')}   ariaLabel={`View ${awaitParts.length} truck rolls awaiting parts`} accent={awaitParts.length > 0 ? 'text-yellow-700' : undefined} />
+        <KPICard label="Active RMAs"      value={withRMA.length}       onClick={() => onDrillView('active-rma')}       ariaLabel={`View ${withRMA.length} truck rolls with active RMAs`} accent={withRMA.length > 0 ? 'text-purple-700' : undefined} />
+        <KPICard label="Overdue"          value={overdue.length}       onClick={() => onDrillView('overdue')}          ariaLabel={`View ${overdue.length} overdue truck rolls`} accent={overdue.length > 0 ? 'text-orange-700' : undefined} />
+        <KPICard label="Critical"         value={critical.length}      onClick={() => onDrillView('critical')}         ariaLabel={`View ${critical.length} critical truck rolls`} accent={critical.length > 0 ? 'text-red-700' : undefined} />
+        <KPICard label="Completed (Jun)"  value={completedMo.length}   onClick={() => onDrillView('completed-this-month')} ariaLabel={`View ${completedMo.length} truck rolls completed this month`} accent="text-emerald-700" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <h3 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Open TR Aging</h3>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {Object.entries(buckets).map(([label, count]) => {
               const pct = (count / maxBkt) * 100;
               const barCls = label === '30+ Days' ? 'bg-red-500' : label === '22–30 Days' ? 'bg-orange-400' : label === '15–21 Days' ? 'bg-yellow-400' : 'bg-blue-400';
+              const agingKey = AGING_BUCKET_TO_KEY[label];
+              const disabled = count === 0;
               return (
-                <div key={label} className="flex items-center gap-2">
-                  <div className="text-[10px] text-slate-500 w-20 shrink-0">{label}</div>
+                <div
+                  key={label}
+                  role="button"
+                  tabIndex={disabled ? -1 : 0}
+                  aria-disabled={disabled}
+                  aria-label={`View ${count} open truck rolls aged ${label}`}
+                  onClick={() => { if (!disabled) onDrillAging(agingKey); }}
+                  onKeyDown={onKeyActivate(() => { if (!disabled) onDrillAging(agingKey); })}
+                  className={`flex items-center gap-2 rounded-md px-1.5 py-1 -mx-1.5 transition-colors
+                    ${disabled ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-300'}`}
+                >
+                  <div className="text-[10px] text-slate-500 w-24 shrink-0">{label}</div>
                   <div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden">
                     <div className={`h-full ${barCls} rounded-sm`} style={{ width: `${pct}%` }} />
                   </div>
@@ -279,11 +324,19 @@ function OverviewTab({ records }: { records: TruckRollRecord[] }) {
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <h3 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Open by Issue Type</h3>
-          <div className="space-y-2">
+          <div className="space-y-1">
             {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, count]) => {
               const pct = open.length > 0 ? (count / open.length) * 100 : 0;
               return (
-                <div key={cat} className="flex items-center gap-2">
+                <div
+                  key={cat}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View ${count} open ${cat} truck rolls`}
+                  onClick={() => onDrillIssue(cat)}
+                  onKeyDown={onKeyActivate(() => onDrillIssue(cat))}
+                  className="flex items-center gap-2 rounded-md px-1.5 py-1 -mx-1.5 cursor-pointer transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
                   <div className="text-[10px] text-slate-500 w-36 shrink-0 truncate">{cat}</div>
                   <div className="flex-1 h-4 bg-slate-100 rounded-sm overflow-hidden">
                     <div className="h-full bg-indigo-400 rounded-sm" style={{ width: `${pct}%` }} />
@@ -374,13 +427,45 @@ function TRRow({ t }: { t: TruckRollRecord }) {
   );
 }
 
-function AllTruckRollsTab({ records }: { records: TruckRollRecord[] }) {
+function AllTruckRollsTab({
+  records, view, aging, issue, onClearDrill, onBackToOverview,
+}: {
+  records: TruckRollRecord[];
+  view: TRViewKey | null;
+  aging: AgingKey | null;
+  issue: string | null;
+  onClearDrill: () => void;
+  onBackToOverview: () => void;
+}) {
   const [search, setSearch]         = useState('');
   const [statusFilter, setStatus]   = useState('');
   const [catFilter, setCat]         = useState('');
   const [overdueOnly, setOverdue]   = useState(false);
 
-  const filtered = records.filter(t => {
+  // When the drill-down target changes, reset manual filters so the table total
+  // exactly matches the KPI card / chart value that was clicked. Adjusting state
+  // during render (not in an effect) is React's recommended pattern for this.
+  const drillKey = view ?? aging ?? issue ?? '';
+  const [prevDrillKey, setPrevDrillKey] = useState(drillKey);
+  if (drillKey !== prevDrillKey) {
+    setPrevDrillKey(drillKey);
+    setSearch(''); setStatus(''); setCat(''); setOverdue(false);
+  }
+
+  // The drill-down base predicate (shared with the cards/charts) + its label.
+  const drill = (() => {
+    if (view)  return { predicate: TR_VIEWS[view].predicate,        label: TR_VIEWS[view].label };
+    if (aging) return { predicate: (t: TruckRollRecord) => trInAgingBucket(t, aging), label: `Open · Aged ${AGING_VIEWS[aging].label}` };
+    if (issue) {
+      const cat = records.find(t => issueCategoryToSlug(t.issueCategory) === issue)?.issueCategory ?? issue;
+      return { predicate: (t: TruckRollRecord) => trIsOpen(t) && issueCategoryToSlug(t.issueCategory) === issue, label: `Open · ${cat}` };
+    }
+    return null;
+  })();
+
+  const base = drill ? records.filter(drill.predicate) : records;
+
+  const filtered = base.filter(t => {
     if (search && !t.customerName.toLowerCase().includes(search.toLowerCase()) && !t.id.toLowerCase().includes(search.toLowerCase())) return false;
     if (statusFilter && t.status !== statusFilter) return false;
     if (catFilter && t.issueCategory !== catFilter) return false;
@@ -393,6 +478,31 @@ function AllTruckRollsTab({ records }: { records: TruckRollRecord[] }) {
 
   return (
     <div className="space-y-3">
+      {drill && (
+        <div className="flex flex-wrap items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
+          <span className="text-xs text-blue-900">
+            Showing <strong>{filtered.length}</strong> truck roll{filtered.length === 1 ? '' : 's'}:{' '}
+            <span className="font-semibold">{drill.label}</span>
+            {view === 'completed-this-month' && <span className="text-blue-600"> · June 2026</span>}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClearDrill}
+              className="text-xs font-medium text-blue-700 hover:text-blue-900 bg-white border border-blue-200 rounded-md px-2.5 py-1 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              Clear Filter
+            </button>
+            <button
+              type="button"
+              onClick={onBackToOverview}
+              className="text-xs font-medium text-slate-600 hover:text-slate-800 bg-white border border-slate-200 rounded-md px-2.5 py-1 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              Back to Overview
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
           <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -417,7 +527,7 @@ function AllTruckRollsTab({ records }: { records: TruckRollRecord[] }) {
         >
           Overdue Only
         </button>
-        <span className="ml-auto text-xs text-slate-400">{filtered.length} of {records.length}</span>
+        <span className="ml-auto text-xs text-slate-400">{filtered.length} of {base.length}</span>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -902,7 +1012,22 @@ type TabKey = typeof TABS[number]['key'];
 export default function TruckRollCenter() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') ?? 'overview') as TabKey;
-  const setTab = (key: TabKey) => setSearchParams({ tab: key }, { replace: true });
+
+  // Drill-down params (validated against the shared registries).
+  const viewParam  = searchParams.get('view');
+  const agingParam = searchParams.get('aging');
+  const issueParam = searchParams.get('issue');
+  const view  = isTRViewKey(viewParam) ? viewParam : null;
+  const aging = isAgingKey(agingParam) ? agingParam : null;
+  const issue = issueParam || null;
+
+  // Tab switches and drill-downs push history entries so the Back button works.
+  const setTab = (key: TabKey) => setSearchParams({ tab: key });
+  const drillView  = (key: TRViewKey) => setSearchParams({ tab: 'all', view: key });
+  const drillAging = (key: AgingKey)  => setSearchParams({ tab: 'all', aging: key });
+  const drillIssue = (cat: string)    => setSearchParams({ tab: 'all', issue: issueCategoryToSlug(cat), status: 'open' });
+  const clearDrill = () => setSearchParams({ tab: 'all' });
+  const backToOverview = () => setSearchParams({ tab: 'overview' });
 
   const records  = truckRollRecords;
   const open     = records.filter(trIsOpen);
@@ -935,8 +1060,8 @@ export default function TruckRollCenter() {
         ))}
       </div>
 
-      {activeTab === 'overview'       && <OverviewTab        records={records} />}
-      {activeTab === 'all'            && <AllTruckRollsTab   records={records} />}
+      {activeTab === 'overview'       && <OverviewTab        records={records} onDrillView={drillView} onDrillAging={drillAging} onDrillIssue={drillIssue} />}
+      {activeTab === 'all'            && <AllTruckRollsTab   records={records} view={view} aging={aging} issue={issue} onClearDrill={clearDrill} onBackToOverview={backToOverview} />}
       {activeTab === 'scheduling'     && <SchedulingTab      records={records} />}
       {activeTab === 'enphase'        && <EnphaseTab         records={records} />}
       {activeTab === 'reimbursements' && <ReimbursementsTab  records={records} />}

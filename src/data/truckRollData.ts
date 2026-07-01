@@ -251,8 +251,11 @@ export function outstandingReimbursement(rma: EnphaseRMA): number {
   return Math.max(0, rma.projectedReimbursementAmount - rma.totalReimbursementReceived);
 }
 
+// RMA statuses that mean the RMA no longer needs CS action.
+const INACTIVE_RMA_STATUSES: RMAStatus[] = ['Not Required', 'RMA Closed', 'RMA Denied'];
+
 export function hasActiveRMA(t: TruckRollRecord): boolean {
-  return t.rmas.some(r => r.rmaRequired !== 'No' && r.rmaStatus !== 'Not Required' && r.rmaStatus !== 'RMA Closed');
+  return t.rmas.some(r => r.rmaRequired !== 'No' && !INACTIVE_RMA_STATUSES.includes(r.rmaStatus));
 }
 
 export function hasPendingDefectiveReturn(t: TruckRollRecord): boolean {
@@ -267,6 +270,155 @@ export function closeoutMissingFields(v: TechnicianVisit): string[] {
   if (!v.technicalNotes) missing.push('Technician Notes');
   if (!v.outcomeNotes) missing.push('Outcome Summary');
   return missing;
+}
+
+// ── Shared Drill-Down Predicates ──────────────────────────────────────────────
+// Single source of truth for KPI card counts AND "All Truck Rolls" drill-down.
+// A card and its drill-down MUST share the same predicate so totals never diverge.
+
+export function trNeedsScheduling(t: TruckRollRecord): boolean {
+  if (!trIsOpen(t)) return false;
+  if (t.status === 'Awaiting Customer Scheduling' ||
+      t.status === 'New' ||
+      t.status === 'Customer Contact Required' ||
+      t.status === 'Awaiting Customer Confirmation') return true;
+  // Revisit needed but no revisit date set yet
+  if (t.status === 'Return Visit Required' && !t.revisitScheduledDate) return true;
+  return false;
+}
+
+export function trScheduledView(t: TruckRollRecord): boolean {
+  return trIsOpen(t) && (t.status === 'Scheduled' || t.status === 'Revisit Scheduled');
+}
+
+export function trAwaitingPartsView(t: TruckRollRecord): boolean {
+  if (!trIsOpen(t)) return false;
+  return (
+    t.status === 'Awaiting Parts' ||
+    t.pendingDeliveryOfItems ||
+    t.status === 'RMA Approved' ||
+    t.status === 'Replacement Shipped'
+  );
+}
+
+export type TRViewKey =
+  | 'open' | 'needs-scheduling' | 'scheduled' | 'awaiting-parts'
+  | 'active-rma' | 'overdue' | 'critical' | 'completed-this-month';
+
+export interface TRViewDef {
+  label: string;
+  predicate: (t: TruckRollRecord) => boolean;
+}
+
+export const TR_VIEWS: Record<TRViewKey, TRViewDef> = {
+  'open':                 { label: 'Open Truck Rolls',     predicate: trIsOpen },
+  'needs-scheduling':     { label: 'Needs Scheduling',     predicate: trNeedsScheduling },
+  'scheduled':            { label: 'Scheduled',            predicate: trScheduledView },
+  'awaiting-parts':       { label: 'Awaiting Parts',       predicate: trAwaitingPartsView },
+  'active-rma':           { label: 'Active RMA',           predicate: hasActiveRMA },
+  'overdue':              { label: 'Overdue',              predicate: trIsOverdue },
+  'critical':             { label: 'Critical',             predicate: trIsCritical },
+  'completed-this-month': { label: 'Completed This Month', predicate: trCompletedThisMonth },
+};
+
+export function isTRViewKey(v: string | null): v is TRViewKey {
+  return v != null && Object.prototype.hasOwnProperty.call(TR_VIEWS, v);
+}
+
+// Aging buckets — keyed by URL-safe slug, share trAgingBucket's boundaries.
+export type AgingKey = '0-7' | '8-14' | '15-21' | '22-30' | '30-plus';
+
+export const AGING_VIEWS: Record<AgingKey, { label: string; match: (days: number) => boolean }> = {
+  '0-7':     { label: '0–7 Days',        match: d => d <= 7 },
+  '8-14':    { label: '8–14 Days',       match: d => d >= 8  && d <= 14 },
+  '15-21':   { label: '15–21 Days',      match: d => d >= 15 && d <= 21 },
+  '22-30':   { label: '22–30 Days',      match: d => d >= 22 && d <= 30 },
+  '30-plus': { label: 'More Than 30 Days', match: d => d > 30 },
+};
+
+export const AGING_BUCKET_TO_KEY: Record<string, AgingKey> = {
+  '0–7 Days': '0-7', '8–14 Days': '8-14', '15–21 Days': '15-21',
+  '22–30 Days': '22-30', '30+ Days': '30-plus',
+};
+
+export function isAgingKey(v: string | null): v is AgingKey {
+  return v != null && Object.prototype.hasOwnProperty.call(AGING_VIEWS, v);
+}
+
+// Open truck roll in a specific aging bucket (completed excluded — they aren't open).
+export function trInAgingBucket(t: TruckRollRecord, key: AgingKey): boolean {
+  return trIsOpen(t) && AGING_VIEWS[key].match(trDaysOpen(t));
+}
+
+// Slug ↔ issue category for URL params.
+export function issueCategoryToSlug(c: string): string {
+  return c.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+// ── Operational Truck-Roll KPIs (canonical) ─────────────────────────────────────
+// These run on the canonical TruckRollRecord[] so every page (Dashboard, Truck Roll
+// Center, KPI Center, Executive Dashboard) reports the SAME truck-roll numbers.
+
+/** A GNR ticket resolved remotely = completed with no on-site visit, or a visit flagged resolvedRemotely. */
+export function trGnrRemoteResolved(t: TruckRollRecord): boolean {
+  if (t.issueCategory !== 'Gateway Not Reporting' || t.status !== 'Completed') return false;
+  return t.numberOfVisits === 0 || t.visits.some(v => v.resolvedRemotely === true);
+}
+
+export function getTRCompletionRate(records: TruckRollRecord[]): number {
+  if (!records.length) return 0;
+  const completed = records.filter(t => t.status === 'Completed').length;
+  return Math.round((completed / records.length) * 1000) / 10;
+}
+
+export function getTRRevisitRate(records: TruckRollRecord[]): number {
+  if (!records.length) return 0;
+  const flagged = records.filter(t => t.revisitRequired).length;
+  return Math.round((flagged / records.length) * 1000) / 10;
+}
+
+export function getGNRRemoteRate(records: TruckRollRecord[]): number {
+  const gnr = records.filter(t => t.issueCategory === 'Gateway Not Reporting');
+  if (!gnr.length) return 0;
+  return Math.round((gnr.filter(trGnrRemoteResolved).length / gnr.length) * 1000) / 10;
+}
+
+export interface TruckRollKPIs {
+  total: number;
+  open: number;
+  needsScheduling: number;
+  scheduled: number;
+  awaitingParts: number;
+  activeRMA: number;
+  overdue: number;
+  critical: number;
+  completed: number;
+  completedThisMonth: number;
+  inRevisitStatus: number;
+  revisitFlagged: number;
+  completionRate: number;
+  revisitRate: number;
+  gnrRemoteRate: number;
+}
+
+export function computeTruckRollKPIs(records: TruckRollRecord[]): TruckRollKPIs {
+  return {
+    total:              records.length,
+    open:               records.filter(TR_VIEWS['open'].predicate).length,
+    needsScheduling:    records.filter(TR_VIEWS['needs-scheduling'].predicate).length,
+    scheduled:          records.filter(TR_VIEWS['scheduled'].predicate).length,
+    awaitingParts:      records.filter(TR_VIEWS['awaiting-parts'].predicate).length,
+    activeRMA:          records.filter(TR_VIEWS['active-rma'].predicate).length,
+    overdue:            records.filter(TR_VIEWS['overdue'].predicate).length,
+    critical:           records.filter(TR_VIEWS['critical'].predicate).length,
+    completed:          records.filter(t => t.status === 'Completed').length,
+    completedThisMonth: records.filter(TR_VIEWS['completed-this-month'].predicate).length,
+    inRevisitStatus:    records.filter(t => t.status === 'Return Visit Required').length,
+    revisitFlagged:     records.filter(t => t.revisitRequired).length,
+    completionRate:     getTRCompletionRate(records),
+    revisitRate:        getTRRevisitRate(records),
+    gnrRemoteRate:      getGNRRemoteRate(records),
+  };
 }
 
 // ── Mock Data ─────────────────────────────────────────────────────────────────
@@ -1158,7 +1310,7 @@ export const truckRollRecords: TruckRollRecord[] = [
     enphaseCases: [],
     rmas: [{
       id: 'RMA-I', rmaNumber: 'RMA-50240', enphaseCaseNumber: '',
-      rmaRequired: 'Yes', rmaSubmittedDate: '2026-06-01', rmaStatus: 'Replacement Received',
+      rmaRequired: 'Yes', rmaSubmittedDate: '2026-06-01', rmaStatus: 'Replacement Delivered',
       trackingNumber: '', replacementEquipmentReceivedDate: '2026-06-09', replacementEquipmentInstalledDate: '',
       laborReimbursementStatus: 'Not Submitted', laborSubmittedDate: '',
       projectedReimbursementAmount: 320, totalReimbursementReceived: 0, reimbursementDateReceived: '',

@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["ES2022"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src",
+    "../shared",
+    "../src/data/sampleData.ts",
+    "../src/data/truckRollData.ts",
+    "../src/data/truckRoll/source.ts",
+    "../src/utils/caseLogic.ts",
+    "../src/utils/kpiCalculations.ts"
+  ]
+}
