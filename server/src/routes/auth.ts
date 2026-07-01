@@ -10,15 +10,20 @@ import { revokeAllForUser } from '../lib/sessions';
 import { changePassword } from '../db/repositories/users';
 import { createResetToken, consumeResetToken } from '../db/repositories/passwordReset';
 import { hashPassword } from '../lib/passwords';
-import { SESSION_COOKIE, loginLimiter } from '../middleware/auth';
-import { validateBody, z, emailField, passwordField, tokenField } from '../lib/validate';
+import { SESSION_COOKIE, loginLimiter, requireAuth } from '../middleware/auth';
+import { validateBody, z, emailField, passwordField, tokenField, totpField } from '../lib/validate';
+import { generateMfaSecret, mfaKeyUri, verifyTotp } from '../lib/mfa';
+import { getMfaSecret, setMfaSecret, enableMfa, disableMfa } from '../db/repositories/users';
 
 export const authRouter = Router();
 
 const loginSchema = z.object({
   email: emailField,
   password: z.string().min(1).max(200),
+  code: totpField.optional(),
 }).strict();
+
+const mfaCodeSchema = z.object({ code: totpField }).strict();
 
 const requestResetSchema = z.object({ email: emailField }).strict();
 const resetSchema = z.object({ token: tokenField, newPassword: passwordField }).strict();
@@ -55,6 +60,17 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
     reqAudit(req, 'login_failed', { actorId: user.id, targetType: 'account', targetId: 'locked', result: 'denied' });
     sendError(res, 'unauthorized', 'This account is temporarily locked. Try again later.');
     return;
+  }
+
+  // Second factor: enrolled users must present a valid TOTP code.
+  if (user.mfaEnabled) {
+    const { code } = req.body as { code?: string };
+    const secret = await getMfaSecret(user.id);
+    if (!secret || !code || !(await verifyTotp(code, secret))) {
+      reqAudit(req, 'login_failed', { actorId: user.id, targetType: 'mfa', targetId: 'code', result: 'denied' });
+      sendError(res, 'unauthenticated', code ? 'Invalid authentication code.' : 'An authentication code is required.');
+      return;
+    }
   }
 
   const session = await createSession(user.id, { userAgent: req.get('user-agent') ?? undefined, ip: req.ip });
@@ -121,4 +137,34 @@ authRouter.post('/reset-password', loginLimiter, validateBody(resetSchema), asyn
   await revokeAllForUser(lookup.userId);
   reqAudit(req, 'password_changed', { actorId: lookup.userId, targetType: 'user', targetId: lookup.userId, result: 'success' });
   res.json({ ok: true });
+});
+
+// ── MFA (TOTP) — authenticated user manages their own second factor ────────────────
+// Begin enrollment: generate a secret and return the otpauth URI (for a QR code) to
+// the enrolling user only. MFA is not yet active until a code is verified.
+authRouter.post('/mfa/enroll', requireAuth, async (req, res) => {
+  if (!dbMode()) { sendError(res, 'invalid_request', 'MFA requires the database store.'); return; }
+  const secret = generateMfaSecret();
+  await setMfaSecret(req.auth!.userId, secret);
+  res.json({ secret, otpauthUrl: mfaKeyUri(req.auth!.email, secret) });
+});
+
+// Confirm enrollment by verifying a code, which enables MFA for the account.
+authRouter.post('/mfa/verify', requireAuth, validateBody(mfaCodeSchema), async (req, res) => {
+  const { code } = req.body as { code: string };
+  const secret = await getMfaSecret(req.auth!.userId);
+  if (!secret || !(await verifyTotp(code, secret))) { sendError(res, 'invalid_request', 'Invalid authentication code.'); return; }
+  await enableMfa(req.auth!.userId);
+  reqAudit(req, 'config_change', { actorId: req.auth!.userId, targetType: 'mfa', targetId: 'enabled', result: 'success' });
+  res.json({ ok: true, mfaEnabled: true });
+});
+
+// Disable MFA — requires a valid current code.
+authRouter.post('/mfa/disable', requireAuth, validateBody(mfaCodeSchema), async (req, res) => {
+  const { code } = req.body as { code: string };
+  const secret = await getMfaSecret(req.auth!.userId);
+  if (!secret || !(await verifyTotp(code, secret))) { sendError(res, 'invalid_request', 'Invalid authentication code.'); return; }
+  await disableMfa(req.auth!.userId);
+  reqAudit(req, 'config_change', { actorId: req.auth!.userId, targetType: 'mfa', targetId: 'disabled', result: 'success' });
+  res.json({ ok: true, mfaEnabled: false });
 });

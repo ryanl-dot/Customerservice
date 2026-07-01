@@ -21,6 +21,7 @@ export interface DbUser {
   lockedUntil: Date | null;
   passwordChangedAt: Date;
   mfaEnabled: boolean;
+  mfaSecret: string | null;
 }
 
 export function normalizeEmail(email: string): string {
@@ -89,4 +90,22 @@ export async function changePassword(id: string, passwordHash: string): Promise<
 
 export function isLocked(user: Pick<DbUser, 'lockedUntil'>): boolean {
   return user.lockedUntil !== null && user.lockedUntil.getTime() > Date.now();
+}
+
+// ── MFA ─────────────────────────────────────────────────────────────────────────
+export async function setMfaSecret(id: string, secret: string): Promise<void> {
+  await getPrisma().user.update({ where: { id }, data: { mfaSecret: secret } });
+}
+
+export async function enableMfa(id: string): Promise<void> {
+  await getPrisma().user.update({ where: { id }, data: { mfaEnabled: true } });
+}
+
+export async function disableMfa(id: string): Promise<void> {
+  await getPrisma().user.update({ where: { id }, data: { mfaEnabled: false, mfaSecret: null } });
+}
+
+export async function getMfaSecret(id: string): Promise<string | null> {
+  const u = await getPrisma().user.findUnique({ where: { id }, select: { mfaSecret: true } });
+  return u?.mfaSecret ?? null;
 }

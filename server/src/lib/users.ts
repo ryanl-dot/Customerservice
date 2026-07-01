@@ -30,6 +30,8 @@ function fromDb(u: dbUsers.DbUser): AuthUserRecord {
     passwordChangedAt: u.passwordChangedAt, mfaEnabled: u.mfaEnabled,
   };
 }
+// Note: mfaSecret is intentionally NOT part of AuthUserRecord — the login flow reads
+// it via a dedicated getMfaSecret() call so it never travels with the general record.
 
 // ── JSON / seed store (development only) ───────────────────────────────────────────
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? 'dev-password-change-me';
