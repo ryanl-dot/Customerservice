@@ -1,5 +1,24 @@
 import type { SessionInfo } from '../../shared/auth/session';
-import type { ApiErrorBody } from '../../shared/api/types';
+import type { ApiErrorBody, ApiErrorCode } from '../../shared/api/types';
+
+// Typed auth error carrying the server's machine-readable code (e.g. 'mfa_required'),
+// so the UI can react to a challenge without string-matching messages.
+export class AuthError extends Error {
+  code: ApiErrorCode | 'unknown';
+  constructor(code: ApiErrorCode | 'unknown', message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+async function toAuthError(res: Response): Promise<AuthError> {
+  try {
+    const body = (await res.json()) as ApiErrorBody;
+    return new AuthError(body.error?.code ?? 'unknown', body.error?.message ?? 'Request failed.');
+  } catch {
+    return new AuthError('unknown', 'Request failed.');
+  }
+}
 
 // Thin client for the auth API. All calls hit the internal /api boundary (proxied to
 // the backend in dev, same-origin in production). No secrets live here — the session
@@ -34,14 +53,17 @@ export async function fetchSession(): Promise<SessionInfo> {
   return (await res.json()) as SessionInfo;
 }
 
-export async function login(email: string, password: string): Promise<SessionInfo> {
+// Login with optional TOTP code. Throws AuthError (with .code) on failure — callers
+// detect code === 'mfa_required' to reveal the MFA step. The password/code are only
+// sent over the request body and never persisted or logged client-side.
+export async function login(email: string, password: string, code?: string): Promise<SessionInfo> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     credentials: 'include',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(code ? { email, password, code } : { email, password }),
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw await toAuthError(res);
   return (await res.json()) as SessionInfo;
 }
 

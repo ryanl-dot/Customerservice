@@ -64,13 +64,17 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
     return;
   }
 
-  // Second factor: enrolled users must present a valid TOTP code.
+  // Second factor: enrolled users must present a valid TOTP code. The password was
+  // already verified above, so signalling "mfa_required" here does not leak account
+  // existence. A full session is created ONLY after the code is verified.
   if (user.mfaEnabled) {
     const { code } = req.body as { code?: string };
     const secret = await getMfaSecret(user.id);
     if (!secret || !code || !(await verifyTotp(code, secret))) {
       reqAudit(req, 'login_failed', { actorId: user.id, targetType: 'mfa', targetId: 'code', result: 'denied' });
-      sendError(res, 'unauthenticated', code ? 'Invalid authentication code.' : 'An authentication code is required.');
+      // Machine-readable challenge so the client can reveal the code field. Generic
+      // message; does not distinguish wrong vs missing beyond whether a code was sent.
+      sendError(res, 'mfa_required', code ? 'Invalid or expired authentication code.' : 'An authentication code is required.');
       return;
     }
   }

@@ -3,6 +3,7 @@ import type { ApiErrorCode, ApiErrorBody } from '../../../shared/api/types';
 
 const STATUS: Record<ApiErrorCode, number> = {
   unauthenticated: 401,
+  mfa_required: 401,
   session_expired: 401,
   unauthorized: 403,
   invalid_request: 400,
@@ -16,6 +17,7 @@ const STATUS: Record<ApiErrorCode, number> = {
 // upstream payloads, or customer data in an error response.
 const SAFE_MESSAGE: Record<ApiErrorCode, string> = {
   unauthenticated: 'Authentication required.',
+  mfa_required: 'An authentication code is required.',
   session_expired: 'Your session has expired. Please sign in again.',
   unauthorized: 'You do not have access to this resource.',
   invalid_request: 'The request was invalid.',

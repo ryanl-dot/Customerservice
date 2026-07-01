@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AuthUser } from '../../shared/auth/session';
-import { AuthContext, type AuthState, type AuthStatus } from './context';
+import { AuthContext, type AuthState, type AuthStatus, type LoginResult } from './context';
 import * as authClient from './authClient';
+import { AuthError } from './authClient';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
@@ -41,15 +42,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [status, refresh]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const info = await authClient.login(email, password);
-    if (info.authenticated && info.user) {
-      setExpired(false);
-      setUser(info.user);
-      setMfaRequired(Boolean(info.mfaEnrollmentRequired));
-      setStatus('authenticated');
-    } else {
+  const login = useCallback(async (email: string, password: string, code?: string): Promise<LoginResult> => {
+    try {
+      const info = await authClient.login(email, password, code);
+      if (info.authenticated && info.user) {
+        setExpired(false);
+        setUser(info.user);
+        setMfaRequired(Boolean(info.mfaEnrollmentRequired));
+        setStatus('authenticated');
+        return { status: 'ok' };
+      }
       throw new Error('Login failed.');
+    } catch (err) {
+      // Password verified but a TOTP code is needed/invalid → signal the MFA step
+      // WITHOUT creating a session. Any other error propagates to the caller.
+      if (err instanceof AuthError && err.code === 'mfa_required') {
+        return { status: 'mfa_required' };
+      }
+      throw err;
     }
   }, []);
 

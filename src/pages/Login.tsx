@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sun, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Sun, LogIn, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../auth/useAuth';
 import { requestPasswordReset } from '../auth/authClient';
 
@@ -7,6 +7,8 @@ export default function Login() {
   const { login, expired } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [step, setStep] = useState<'credentials' | 'mfa'>('credentials');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
@@ -18,17 +20,39 @@ export default function Login() {
     try { await requestPasswordReset(email); } finally { setBusy(false); setResetSent(true); }
   }
 
+  // Step 1: email + password. If the server issues an MFA challenge, switch to the
+  // code step WITHOUT a session having been created.
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      await login(email, password);
+      const result = await login(email, password);
+      if (result.status === 'mfa_required') { setStep('mfa'); setCode(''); }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.');
     } finally {
       setBusy(false);
     }
+  }
+
+  // Step 2: verify the TOTP code. A full session is created only on success.
+  async function onMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await login(email, password, code.trim());
+      if (result.status === 'mfa_required') setError('Invalid or expired authentication code.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function backToSignIn() {
+    setStep('credentials'); setCode(''); setPassword(''); setError(null);
   }
 
   return (
@@ -63,6 +87,30 @@ export default function Login() {
             )}
             <button type="button" onClick={() => { setForgot(false); setResetSent(false); }} className="text-xs text-blue-600 hover:underline">Back to sign in</button>
           </form>
+        ) : step === 'mfa' ? (
+          <form onSubmit={onMfaSubmit} className="bg-white border border-slate-200 rounded-lg p-5 space-y-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={16} className="text-slate-700" />
+              <h1 className="text-sm font-semibold text-slate-700">Two-factor authentication</h1>
+            </div>
+            <p className="text-[11px] text-slate-500">Enter the 6-digit code from your authenticator app.</p>
+            {error && (
+              <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 ring-1 ring-red-200 rounded-md px-3 py-2">
+                <AlertCircle size={13} /> {error}
+              </div>
+            )}
+            <input
+              aria-label="Authentication code"
+              inputMode="numeric" autoComplete="one-time-code" autoFocus
+              value={code} onChange={e => setCode(e.target.value)} placeholder="123456" required
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <button type="submit" disabled={busy || code.trim().length !== 6}
+              className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white text-sm font-medium rounded-md py-2 hover:bg-slate-800 disabled:opacity-60">
+              <ShieldCheck size={14} /> {busy ? 'Verifying…' : 'Verify'}
+            </button>
+            <button type="button" onClick={backToSignIn} className="block text-xs text-blue-600 hover:underline">Back to sign-in</button>
+          </form>
         ) : (
         <form onSubmit={onSubmit} className="bg-white border border-slate-200 rounded-lg p-5 space-y-3 shadow-sm">
           <h1 className="text-sm font-semibold text-slate-700">Sign in</h1>
@@ -81,6 +129,7 @@ export default function Login() {
           <div>
             <label className="block text-[11px] font-medium text-slate-500 mb-1">Email</label>
             <input
+              aria-label="Email"
               type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
@@ -88,6 +137,7 @@ export default function Login() {
           <div>
             <label className="block text-[11px] font-medium text-slate-500 mb-1">Password</label>
             <input
+              aria-label="Password"
               type="password" value={password} onChange={e => setPassword(e.target.value)} required
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
             />

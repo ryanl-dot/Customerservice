@@ -74,15 +74,27 @@ describe.skipIf(!HAS_DB)('MFA enforcement + password reset (HTTP, DB)', () => {
     // Now unblocked.
     expect((await agent.get('/api/kpis')).status).toBe(200);
 
-    // A brand-new login now requires the TOTP code.
+    // A brand-new login now issues an mfa_required challenge (no session yet).
     const agent2 = request.agent(app);
     const c2 = await csrf(agent2);
     const noCode = await agent2.post('/api/auth/login').set('x-csrf-token', c2.token).send({ email: 'admin2@example.com', password: 'strong-password-2' });
     expect(noCode.status).toBe(401);
+    expect(noCode.body.error.code).toBe('mfa_required');           // machine-readable challenge
+    expect((await agent2.get('/api/auth/session')).body.authenticated).toBe(false); // no session created
+
+    // A wrong/expired code is also an mfa_required challenge (generic), not a session.
+    const wrongCode = await agent2.post('/api/auth/login').set('x-csrf-token', c2.token)
+      .send({ email: 'admin2@example.com', password: 'strong-password-2', code: '000000' });
+    expect(wrongCode.status).toBe(401);
+    expect(wrongCode.body.error.code).toBe('mfa_required');
+    expect((await agent2.get('/api/auth/session')).body.authenticated).toBe(false);
+
+    // The correct current code creates the full session.
     const withCode = await agent2.post('/api/auth/login').set('x-csrf-token', c2.token)
       .send({ email: 'admin2@example.com', password: 'strong-password-2', code: await generate({ strategy: 'totp', secret: enroll.body.secret }) });
     expect(withCode.status).toBe(200);
     expect(withCode.body.mfaEnrollmentRequired).toBe(false);
+    expect((await agent2.get('/api/auth/session')).body.authenticated).toBe(true);
   });
 
   it('non-privileged role is not forced into MFA', async () => {
@@ -97,14 +109,17 @@ describe.skipIf(!HAS_DB)('MFA enforcement + password reset (HTTP, DB)', () => {
     const u = await makeUser('customer_service', 'reset@example.com', 'original-password-1');
     const agent = request.agent(app);
     const { token } = await csrf(agent);
+    // Isolate this test's login/reset rate-limit bucket (limiter keys on req.ip; trust
+    // proxy is on) so cross-test accumulation doesn't trip the throttle.
+    const IP = '10.9.9.9';
 
     // Establish a session, then request a reset.
-    await agent.post('/api/auth/login').set('x-csrf-token', token).send({ email: 'reset@example.com', password: 'original-password-1' });
-    const reqRes = await agent.post('/api/auth/request-password-reset').set('x-csrf-token', token).send({ email: 'reset@example.com' });
+    await agent.post('/api/auth/login').set('x-csrf-token', token).set('X-Forwarded-For', IP).send({ email: 'reset@example.com', password: 'original-password-1' });
+    const reqRes = await agent.post('/api/auth/request-password-reset').set('x-csrf-token', token).set('X-Forwarded-For', IP).send({ email: 'reset@example.com' });
     expect(reqRes.status).toBe(200); // generic
 
     // Unknown email also returns 200 (no enumeration).
-    const unknown = await agent.post('/api/auth/request-password-reset').set('x-csrf-token', token).send({ email: 'nobody@example.com' });
+    const unknown = await agent.post('/api/auth/request-password-reset').set('x-csrf-token', token).set('X-Forwarded-For', IP).send({ email: 'nobody@example.com' });
     expect(unknown.status).toBe(200);
 
     // The test transport captured exactly one email (for the real account) with a link.
@@ -115,14 +130,14 @@ describe.skipIf(!HAS_DB)('MFA enforcement + password reset (HTTP, DB)', () => {
     const rawToken = link![1];
 
     // Reset with the token.
-    const resetRes = await agent.post('/api/auth/reset-password').set('x-csrf-token', token).send({ token: rawToken, newPassword: 'brand-new-password-9' });
+    const resetRes = await agent.post('/api/auth/reset-password').set('x-csrf-token', token).set('X-Forwarded-For', IP).send({ token: rawToken, newPassword: 'brand-new-password-9' });
     expect(resetRes.status).toBe(200);
 
     // The prior session is revoked (all sessions invalidated on password change).
     expect((await agent.get('/api/auth/session')).body.authenticated).toBe(false);
 
     // Token cannot be reused.
-    const reuse = await agent.post('/api/auth/reset-password').set('x-csrf-token', token).send({ token: rawToken, newPassword: 'another-password-99' });
+    const reuse = await agent.post('/api/auth/reset-password').set('x-csrf-token', token).set('X-Forwarded-For', IP).send({ token: rawToken, newPassword: 'another-password-99' });
     expect(reuse.status).toBe(400);
 
     // New password works.

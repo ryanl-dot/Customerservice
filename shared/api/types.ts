@@ -4,6 +4,7 @@ export type DataMode = 'mock' | 'test' | 'production';
 
 export type ApiErrorCode =
   | 'unauthenticated'      // no/invalid session
+  | 'mfa_required'         // password OK, but a TOTP second factor is needed/invalid
   | 'session_expired'      // session existed but expired
   | 'unauthorized'         // authenticated but role lacks access
   | 'invalid_request'      // failed input validation
