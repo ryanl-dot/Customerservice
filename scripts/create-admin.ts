@@ -13,6 +13,7 @@
  * allowed. Seed/dev accounts are never written to the database.
  */
 import * as readline from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from '../server/src/lib/passwords';
 import { addPersistedUser, emailExists as jsonEmailExists, storePath } from '../server/src/lib/userStore';
@@ -28,10 +29,18 @@ const STORE = userStore(); // 'db' | 'json'
 
 let rl: readline.Interface | null = null;
 let pipedLines: string[] = [];
+let muted = false;
+
+const readlineOutput = new Writable({
+  write(chunk, _encoding, callback) {
+    if (!muted) process.stdout.write(chunk);
+    callback();
+  },
+});
 
 async function init() {
   if (isTTY) {
-    rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    rl = readline.createInterface({ input: process.stdin, output: readlineOutput, terminal: true });
   } else {
     // Non-interactive (piped) input: read it all up front and serve line by line.
     const chunks: Buffer[] = [];
@@ -49,18 +58,19 @@ async function ask(query: string): Promise<string> {
 // Prompt for a secret. On a TTY, keystrokes are NOT echoed. When piped, the value is
 // consumed without ever being written to stdout, so it is never displayed either way.
 async function askHidden(query: string): Promise<string> {
-  if (!isTTY) { process.stdout.write(query + '\n'); return pipedLines.shift() ?? ''; }
-  const rlAny = rl as unknown as { _writeToOutput: (s: string) => void; output: NodeJS.WriteStream };
-  const original = rlAny._writeToOutput.bind(rl);
-  let muted = false;
-  rlAny._writeToOutput = (str: string) => {
-    if (!muted) { original(str); return; }
-    if (str.includes('\n') || str.includes('\r')) rlAny.output.write('\n');
-    // else: swallow the echoed character
-  };
-  const pending = rl!.question(query);
-  muted = true; // query already printed; subsequent keystrokes are hidden
-  try { return await pending; } finally { rlAny._writeToOutput = original; }
+  if (!isTTY) {
+    process.stdout.write(query + '\n');
+    return pipedLines.shift() ?? '';
+  }
+
+  process.stdout.write(query);
+  muted = true;
+  try {
+    return await rl!.question('');
+  } finally {
+    muted = false;
+    process.stdout.write('\n');
+  }
 }
 
 async function main() {
