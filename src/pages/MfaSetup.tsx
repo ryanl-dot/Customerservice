@@ -15,7 +15,11 @@ export default function MfaSetup() {
 
   useEffect(() => {
     let active = true;
-    mfaEnroll().then(r => { if (active) setEnroll(r); }).catch(() => { if (active) setError('Could not start MFA setup.'); });
+    mfaEnroll()
+      .then(r => { if (active) setEnroll(r); })
+      .catch((err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : 'Could not start MFA setup.');
+      });
     return () => { active = false; };
   }, []);
 
