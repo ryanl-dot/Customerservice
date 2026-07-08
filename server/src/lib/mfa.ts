@@ -1,6 +1,6 @@
 import { generateSecret, generateURI, verify } from 'otplib';
 import type { Role } from '../../../shared/auth/roles';
-import { isProduction } from './config';
+import { isProduction, userStore } from './config';
 
 // Standards-based TOTP (RFC 6238) via otplib v13 (Noble crypto plugin — no custom
 // cryptography). Secrets are generated server-side, stored on the user row, and never
@@ -31,6 +31,14 @@ const MFA_REQUIRED_ROLES: Role[] = ['administrator', 'executive', 'management'];
 
 export function roleRequiresMfa(role: Role): boolean {
   return MFA_REQUIRED_ROLES.includes(role);
+}
+
+// MFA can only be enrolled/verified when the database user store is active (secrets
+// live on the user row). In JSON dev mode there is no DB, so mandatory MFA does not
+// apply — otherwise a privileged dev account would be permanently locked out (unable
+// to enroll). Production always uses the DB store, so enforcement holds there.
+export function mfaApplies(): boolean {
+  return isProduction() || userStore() === 'db';
 }
 
 // Privileged-role MFA is fully enforced: not-yet-enrolled privileged users get an

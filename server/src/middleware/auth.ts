@@ -7,7 +7,7 @@ import { getSession, touchSession } from '../lib/sessions';
 import { getUserById } from '../lib/users';
 import { sendError } from '../lib/errors';
 import { reqAudit } from '../lib/audit';
-import { roleRequiresMfa } from '../lib/mfa';
+import { roleRequiresMfa, mfaApplies } from '../lib/mfa';
 
 export const SESSION_COOKIE = 'solarcs_session';
 
@@ -49,7 +49,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
     void touchSession(lookup.session.token); // best-effort lastSeen update
     // Privileged role without completed MFA enrollment → session is MFA-pending.
-    const mfaPending = roleRequiresMfa(user.role) && !user.mfaEnabled;
+    // Only applies when the DB store is active (MFA can't be enrolled without it).
+    const mfaPending = mfaApplies() && roleRequiresMfa(user.role) && !user.mfaEnabled;
     req.auth = { userId: user.id, role: user.role, email: user.email, name: user.name, mfaPending };
     next();
   } catch {

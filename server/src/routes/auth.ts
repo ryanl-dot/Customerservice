@@ -12,7 +12,7 @@ import { createResetToken, consumeResetToken } from '../db/repositories/password
 import { hashPassword } from '../lib/passwords';
 import { SESSION_COOKIE, loginLimiter, requireAuth } from '../middleware/auth';
 import { validateBody, z, emailField, passwordField, tokenField, totpField } from '../lib/validate';
-import { generateMfaSecret, mfaKeyUri, verifyTotp, roleRequiresMfa } from '../lib/mfa';
+import { generateMfaSecret, mfaKeyUri, verifyTotp, roleRequiresMfa, mfaApplies } from '../lib/mfa';
 import { getMfaSecret, setMfaSecret, enableMfa, disableMfa } from '../db/repositories/users';
 import { getMailer, passwordResetMessage } from '../lib/email';
 import QRCode from 'qrcode';
@@ -85,7 +85,7 @@ authRouter.post('/login', loginLimiter, validateBody(loginSchema), async (req, r
   reqAudit(req, 'login', { actorId: user.id, result: 'success' });
   // Privileged role that hasn't enrolled MFA → session is MFA-pending; the client must
   // route to mandatory enrollment and the server blocks protected endpoints meanwhile.
-  const mfaEnrollmentRequired = roleRequiresMfa(user.role) && !user.mfaEnabled;
+  const mfaEnrollmentRequired = mfaApplies() && roleRequiresMfa(user.role) && !user.mfaEnabled;
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(session), mfaEnrollmentRequired };
   res.json(body);
 });
@@ -113,7 +113,7 @@ authRouter.get('/session', async (req, res) => {
     res.json({ authenticated: false } satisfies SessionInfo);
     return;
   }
-  const mfaEnrollmentRequired = roleRequiresMfa(user.role) && !user.mfaEnabled;
+  const mfaEnrollmentRequired = mfaApplies() && roleRequiresMfa(user.role) && !user.mfaEnabled;
   const body: SessionInfo = { authenticated: true, user: publicUser(user), expiresAt: sessionExpiryIso(lookup.session), mfaEnrollmentRequired };
   res.json(body);
 });
