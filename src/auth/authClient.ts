@@ -11,12 +11,26 @@ export class AuthError extends Error {
   }
 }
 
+const UNREACHABLE_MSG = 'Could not reach the server. Make sure the API is running (npm run dev:server) and try again.';
+
 async function toAuthError(res: Response): Promise<AuthError> {
   try {
     const body = (await res.json()) as ApiErrorBody;
     return new AuthError(body.error?.code ?? 'unknown', body.error?.message ?? 'Request failed.');
   } catch {
-    return new AuthError('unknown', 'Request failed.');
+    // Non-JSON response (e.g. the dev proxy couldn't reach the API, or a gateway
+    // error page) → the API is unreachable rather than a real auth failure.
+    return new AuthError('unknown', UNREACHABLE_MSG);
+  }
+}
+
+// Wrap fetch so a network-level failure (server down, DNS, CORS) surfaces a clear,
+// actionable message instead of a raw "Failed to fetch".
+async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new AuthError('unknown', UNREACHABLE_MSG);
   }
 }
 
@@ -48,16 +62,20 @@ function csrfHeaders(): Record<string, string> {
 }
 
 export async function fetchSession(): Promise<SessionInfo> {
-  const res = await fetch('/api/auth/session', { credentials: 'include' });
-  if (!res.ok) return { authenticated: false };
-  return (await res.json()) as SessionInfo;
+  try {
+    const res = await fetch('/api/auth/session', { credentials: 'include' });
+    if (!res.ok) return { authenticated: false };
+    return (await res.json()) as SessionInfo;
+  } catch {
+    return { authenticated: false }; // API unreachable → treat as signed out
+  }
 }
 
 // Login with optional TOTP code. Throws AuthError (with .code) on failure — callers
 // detect code === 'mfa_required' to reveal the MFA step. The password/code are only
 // sent over the request body and never persisted or logged client-side.
 export async function login(email: string, password: string, code?: string): Promise<SessionInfo> {
-  const res = await fetch('/api/auth/login', {
+  const res = await safeFetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     credentials: 'include',
@@ -68,11 +86,11 @@ export async function login(email: string, password: string, code?: string): Pro
 }
 
 export async function logout(): Promise<void> {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { ...csrfHeaders() } });
+  await safeFetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { ...csrfHeaders() } }).catch(() => undefined);
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     credentials: 'include',
@@ -92,12 +110,12 @@ export function mfaVerify(code: string): Promise<{ ok: boolean; mfaEnabled: bool
 
 // Password reset — always resolves generically (server never reveals account existence).
 export async function requestPasswordReset(email: string): Promise<void> {
-  await fetch('/api/auth/request-password-reset', {
+  await safeFetch('/api/auth/request-password-reset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     credentials: 'include',
     body: JSON.stringify({ email }),
-  });
+  }).catch(() => undefined);
 }
 export function resetPassword(token: string, newPassword: string): Promise<{ ok: boolean }> {
   return postJson('/api/auth/reset-password', { token, newPassword });
